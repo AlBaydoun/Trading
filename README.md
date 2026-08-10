@@ -220,10 +220,46 @@ provider degrades the *freshness* of prices, never the availability of the site.
 
 ## Deploying
 
-1. Provision PostgreSQL and set `DATABASE_URL`.
+1. Provision PostgreSQL and set `DATABASE_URL` and `DIRECT_URL`.
 2. Set `AUTH_SECRET` (`openssl rand -base64 48`) and `NEXT_PUBLIC_SITE_URL`.
-3. `npm run db:deploy` to apply migrations.
+3. `npm run db:deploy` to apply migrations, then `npm run db:seed` if you want
+   the demo mandates, assets and articles.
 4. `npm run build && npm run start`.
+
+### Pooled connections
+
+On a managed provider that pools connections — Supabase, Neon — `DATABASE_URL`
+must be the **pooled** endpoint and `DIRECT_URL` the **direct** one. Prisma runs
+queries through the pool and migrations through a real session, because a
+transaction-mode pooler cannot execute them.
+
+Supabase, from Project Settings → Database:
+
+```
+DATABASE_URL="postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+DIRECT_URL="postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres"
+```
+
+The `pgbouncer=true&connection_limit=1` part is not optional: without it
+Prisma's prepared statements collide across pooled sessions and you get
+intermittent `prepared statement "s0" already exists` errors under load.
+
+Running your own Postgres on a single server? Set both to the same string.
+
+### Moving to your own server later
+
+Nothing here is tied to a specific host. It is a standard Next.js app talking to
+Postgres over a connection string, so migrating is: point `DATABASE_URL` and
+`DIRECT_URL` at the new database, `npm run db:deploy`, then `npm run build &&
+npm run start` behind nginx or a container. Budget an afternoon, not a rewrite.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request against a real
+PostgreSQL service container: migrate, seed, typecheck, lint, build, then
+`verify:ops`. The build genuinely needs the database — plan and article pages
+prerender through `generateStaticParams` — so CI exercises the same path a
+deployment does.
 
 **Replace file uploads before going live.** `src/lib/uploads.ts` writes KYC
 documents to the container filesystem — correct for a single long-lived server,

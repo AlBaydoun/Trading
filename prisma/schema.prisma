@@ -14,7 +14,17 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+
+  /// Pooled connection used for ordinary queries. On Supabase or Neon this is
+  /// the PgBouncer endpoint (port 6543 on Supabase), which must carry
+  /// `?pgbouncer=true&connection_limit=1` or Prisma's prepared statements will
+  /// collide across pooled sessions.
+  url = env("DATABASE_URL")
+
+  /// Direct, unpooled connection. Migrations and introspection need a real
+  /// session — PgBouncer in transaction mode cannot run them. Locally this is
+  /// simply the same string as DATABASE_URL.
+  directUrl = env("DIRECT_URL")
 }
 
 // -----------------------------------------------------------------------------
