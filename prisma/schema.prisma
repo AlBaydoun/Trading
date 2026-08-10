@@ -1,0 +1,738 @@
+// =============================================================================
+// AXIOM CAPITAL — DATA MODEL
+//
+// Money is never a float. Every monetary column is Decimal(28, 8): enough
+// integer room for institutional balances and enough fractional room for
+// satoshis. All balances are derived from a double-entry ledger
+// (JournalEntry + JournalLine); LedgerAccount.balance is a cache that the
+// posting routine maintains inside the same transaction as the lines.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum Role {
+  USER
+  ANALYST // read-only access to the admin console
+  ADMIN // can approve money movements
+  SUPER_ADMIN // can manage staff and platform settings
+}
+
+enum UserStatus {
+  PENDING // registered, email not confirmed
+  ACTIVE
+  SUSPENDED // blocked by compliance, cannot transact
+  CLOSED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum RiskProfile {
+  CONSERVATIVE
+  BALANCED
+  GROWTH
+  AGGRESSIVE
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum EntryType {
+  DEPOSIT
+  WITHDRAWAL
+  INVESTMENT_OPEN
+  INVESTMENT_CLOSE
+  RETURN_ACCRUAL
+  MANAGEMENT_FEE
+  PERFORMANCE_FEE
+  WITHDRAWAL_FEE
+  REFERRAL_BONUS
+  MANUAL_ADJUSTMENT
+  REVERSAL
+}
+
+enum RequestStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum InvestmentStatus {
+  PENDING
+  ACTIVE
+  MATURED
+  CLOSED
+  CANCELLED
+}
+
+enum PayoutFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ON_MATURITY
+}
+
+enum RiskLevel {
+  LOW
+  MODERATE
+  HIGH
+  VERY_HIGH
+}
+
+enum AssetKind {
+  CRYPTO
+  EQUITY
+  ETF
+  INDEX
+  COMMODITY
+  FOREX
+}
+
+enum DepositMethod {
+  BANK_TRANSFER
+  BTC
+  ETH
+  USDT_TRC20
+  USDT_ERC20
+  CARD
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  INVESTMENT
+  INVESTMENT_CLOSE
+  RETURN
+  FEE
+  REFERRAL_BONUS
+  ADJUSTMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  CRITICAL
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+  CLOSED
+}
+
+// -----------------------------------------------------------------------------
+// Identity
+// -----------------------------------------------------------------------------
+
+model User {
+  id              String      @id @default(cuid())
+  email           String      @unique
+  emailVerifiedAt DateTime?
+  passwordHash    String
+  firstName       String
+  lastName        String
+  phone           String?
+  country         String? // ISO 3166-1 alpha-2
+  avatarUrl       String?
+
+  role        Role        @default(USER)
+  status      UserStatus  @default(PENDING)
+  kycStatus   KycStatus   @default(NOT_STARTED)
+  riskProfile RiskProfile @default(BALANCED)
+
+  // Soft security controls. TOTP secret is stored encrypted at rest in prod.
+  twoFactorEnabled Boolean   @default(false)
+  twoFactorSecret  String?
+  lastLoginAt      DateTime?
+  lastLoginIp      String?
+  failedLogins     Int       @default(0)
+  lockedUntil      DateTime?
+
+  referralCode String  @unique
+  referredById String?
+  referredBy   User?   @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals    User[]  @relation("Referrals")
+
+  marketingOptIn Boolean @default(false)
+  notes          String? // internal, admin-only
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions            Session[]
+  ledgerAccounts      LedgerAccount[]
+  kycSubmissions      KycSubmission[]      @relation("KycOwner")
+  reviewedKyc         KycSubmission[]      @relation("KycReviewer")
+  deposits            DepositRequest[]     @relation("DepositOwner")
+  reviewedDeposits    DepositRequest[]     @relation("DepositReviewer")
+  withdrawals         WithdrawalRequest[]  @relation("WithdrawalOwner")
+  reviewedWithdrawals WithdrawalRequest[]  @relation("WithdrawalReviewer")
+  investments         Investment[]
+  transactions        Transaction[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  journalEntries      JournalEntry[]       @relation("JournalAuthor")
+  accruals            AccrualEntry[]       @relation("AccrualAuthor")
+  watchlist           WatchlistItem[]
+
+  @@index([role, status])
+  @@index([kycStatus])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique // sha256 of the opaque cookie value
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Rolling record used for brute-force lockout and abuse dashboards.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  ip        String?
+  success   Boolean  @default(false)
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+  @@map("login_attempts")
+}
+
+// -----------------------------------------------------------------------------
+// Compliance
+// -----------------------------------------------------------------------------
+
+model KycSubmission {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("KycOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  documentType   String // PASSPORT | NATIONAL_ID | DRIVERS_LICENCE
+  documentNumber String
+  documentExpiry DateTime?
+  dateOfBirth    DateTime
+  nationality    String
+
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  region       String?
+  postalCode   String
+  country      String
+
+  occupation      String?
+  sourceOfFunds   String
+  expectedVolume  String?
+  isPep           Boolean @default(false) // politically exposed person
+  taxResidency    String?
+  taxIdentifier   String?
+
+  documentFrontPath String
+  documentBackPath  String?
+  selfiePath        String
+  proofOfAddress    String?
+
+  status      KycStatus @default(PENDING)
+  reviewNotes String?
+  reviewerId  String?
+  reviewer    User?     @relation("KycReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  submittedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+  expiresAt   DateTime?
+
+  @@index([userId])
+  @@index([status, submittedAt])
+  @@map("kyc_submissions")
+}
+
+// -----------------------------------------------------------------------------
+// Double-entry ledger
+// -----------------------------------------------------------------------------
+
+/// One account per (user, purpose) plus a set of platform-level system
+/// accounts. `balance` is a maintained cache — the journal lines are truth.
+model LedgerAccount {
+  id       String      @id @default(cuid())
+  code     String      @unique // e.g. "user:cash:clx123", "system:fees:management"
+  name     String
+  type     AccountType
+  currency String      @default("USD")
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  isSystem Boolean @default(false)
+  balance  Decimal @default(0) @db.Decimal(28, 8)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines JournalLine[]
+
+  @@index([userId])
+  @@index([type])
+  @@map("ledger_accounts")
+}
+
+model JournalEntry {
+  id          String    @id @default(cuid())
+  reference   String    @unique
+  type        EntryType
+  description String
+  occurredAt  DateTime  @default(now())
+  currency    String    @default("USD")
+
+  createdById String?
+  createdBy   User?   @relation("JournalAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  /// Free-form context: source request id, external tx hash, rate used, etc.
+  metadata Json?
+
+  /// Ledgers are append-only. A mistake is corrected by posting a mirror
+  /// entry that points back here rather than by editing history.
+  reversesId String?       @unique
+  reverses   JournalEntry? @relation("Reversal", fields: [reversesId], references: [id], onDelete: SetNull)
+  reversedBy JournalEntry? @relation("Reversal")
+
+  createdAt DateTime @default(now())
+
+  lines        JournalLine[]
+  transactions Transaction[]
+  deposit      DepositRequest?
+  withdrawal   WithdrawalRequest?
+
+  @@index([type, occurredAt])
+  @@index([occurredAt])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id        String          @id @default(cuid())
+  entryId   String
+  entry     JournalEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  accountId String
+  account   LedgerAccount   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  direction LedgerDirection
+  amount    Decimal         @db.Decimal(28, 8)
+  currency  String          @default("USD")
+  memo      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entryId])
+  @@index([accountId, createdAt])
+  @@map("journal_lines")
+}
+
+// -----------------------------------------------------------------------------
+// Products and positions
+// -----------------------------------------------------------------------------
+
+model InvestmentPlan {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  tagline     String
+  description String
+
+  minimumAmount Decimal  @db.Decimal(28, 8)
+  maximumAmount Decimal? @db.Decimal(28, 8)
+  currency      String   @default("USD")
+
+  /// Advertised target range. Explicitly a target, never a promise — the UI
+  /// renders it alongside a capital-risk disclaimer.
+  targetApyLow  Decimal @db.Decimal(8, 4)
+  targetApyHigh Decimal @db.Decimal(8, 4)
+
+  managementFeePct  Decimal @default(0) @db.Decimal(8, 4)
+  performanceFeePct Decimal @default(0) @db.Decimal(8, 4)
+  earlyExitFeePct   Decimal @default(0) @db.Decimal(8, 4)
+
+  lockupDays      Int             @default(0)
+  payoutFrequency PayoutFrequency @default(MONTHLY)
+  riskLevel       RiskLevel       @default(MODERATE)
+
+  /// [{ "label": "Bitcoin", "percent": 40, "kind": "CRYPTO" }, ...]
+  allocation Json
+  highlights String[]
+
+  isActive  Boolean @default(true)
+  isFeatured Boolean @default(false)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  investments Investment[]
+
+  @@index([isActive, sortOrder])
+  @@map("investment_plans")
+}
+
+model Investment {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId String
+  plan   InvestmentPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  reference String @unique
+
+  principal     Decimal @db.Decimal(28, 8)
+  currentValue  Decimal @db.Decimal(28, 8)
+  realisedPnl   Decimal @default(0) @db.Decimal(28, 8)
+  feesPaid      Decimal @default(0) @db.Decimal(28, 8)
+  currency      String  @default("USD")
+
+  status InvestmentStatus @default(PENDING)
+
+  startedAt     DateTime  @default(now())
+  maturesAt     DateTime?
+  closedAt      DateTime?
+  lastAccrualAt DateTime?
+
+  autoRenew Boolean @default(false)
+  note      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accruals AccrualEntry[]
+
+  @@index([userId, status])
+  @@index([planId])
+  @@index([status, maturesAt])
+  @@map("investments")
+}
+
+/// One row per credited return period. Gives investors a defensible,
+/// itemised history instead of a single moving balance.
+model AccrualEntry {
+  id           String     @id @default(cuid())
+  investmentId String
+  investment   Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+
+  amount      Decimal  @db.Decimal(28, 8)
+  ratePct     Decimal  @db.Decimal(8, 4)
+  periodStart DateTime
+  periodEnd   DateTime
+  note        String?
+
+  createdById String?
+  createdBy   User?   @relation("AccrualAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([investmentId, periodEnd])
+  @@map("accrual_entries")
+}
+
+// -----------------------------------------------------------------------------
+// Money movement requests
+// -----------------------------------------------------------------------------
+
+model DepositRequest {
+  id        String @id @default(cuid())
+  reference String @unique
+  userId    String
+  user      User   @relation("DepositOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  amount   Decimal       @db.Decimal(28, 8)
+  currency String        @default("USD")
+  method   DepositMethod
+
+  /// Bank reference the investor used, or the on-chain transaction hash.
+  senderReference String?
+  txHash          String?
+  proofPath       String?
+
+  status      RequestStatus @default(PENDING)
+  reviewNotes String?
+  reviewerId  String?
+  reviewer    User?         @relation("DepositReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  journalEntryId String?       @unique
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+
+  createdAt  DateTime  @default(now())
+  reviewedAt DateTime?
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("deposit_requests")
+}
+
+model WithdrawalRequest {
+  id        String @id @default(cuid())
+  reference String @unique
+  userId    String
+  user      User   @relation("WithdrawalOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  amount    Decimal @db.Decimal(28, 8)
+  feeAmount Decimal @default(0) @db.Decimal(28, 8)
+  netAmount Decimal @db.Decimal(28, 8)
+  currency  String  @default("USD")
+  method    DepositMethod
+
+  /// Bank details or wallet address, captured at request time so a later
+  /// profile edit cannot retroactively change where money was sent.
+  destination Json
+
+  status      RequestStatus @default(PENDING)
+  reviewNotes String?
+  reviewerId  String?
+  reviewer    User?         @relation("WithdrawalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  journalEntryId String?       @unique
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+
+  createdAt  DateTime  @default(now())
+  reviewedAt DateTime?
+  settledAt  DateTime?
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("withdrawal_requests")
+}
+
+/// Denormalised, investor-facing activity feed. Written in the same database
+/// transaction as the journal entry it summarises.
+model Transaction {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type        TransactionType
+  status      TransactionStatus @default(COMPLETED)
+  amount      Decimal           @db.Decimal(28, 8)
+  currency    String            @default("USD")
+  balanceAfter Decimal?         @db.Decimal(28, 8)
+  description String
+  reference   String
+
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@map("transactions")
+}
+
+// -----------------------------------------------------------------------------
+// Market data
+// -----------------------------------------------------------------------------
+
+model Asset {
+  id     String    @id @default(cuid())
+  symbol String    @unique
+  name   String
+  kind   AssetKind
+
+  exchange    String?
+  coingeckoId String?
+  logoUrl     String?
+
+  priceUsd      Decimal  @default(0) @db.Decimal(28, 8)
+  change24hPct  Decimal  @default(0) @db.Decimal(12, 4)
+  change7dPct   Decimal  @default(0) @db.Decimal(12, 4)
+  marketCapUsd  Decimal? @db.Decimal(28, 2)
+  volume24hUsd  Decimal? @db.Decimal(28, 2)
+  circulating   Decimal? @db.Decimal(28, 4)
+
+  /// Recent closes for the inline sparkline, oldest → newest.
+  sparkline Json?
+
+  rank      Int?
+  isActive  Boolean  @default(true)
+  isFeatured Boolean @default(false)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  snapshots PriceSnapshot[]
+  watchers  WatchlistItem[]
+
+  @@index([kind, rank])
+  @@index([isFeatured])
+  @@map("assets")
+}
+
+model PriceSnapshot {
+  id        String   @id @default(cuid())
+  assetId   String
+  asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  priceUsd  Decimal  @db.Decimal(28, 8)
+  capturedAt DateTime @default(now())
+
+  @@index([assetId, capturedAt])
+  @@map("price_snapshots")
+}
+
+model WatchlistItem {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, assetId])
+  @@index([userId])
+  @@map("watchlist_items")
+}
+
+// -----------------------------------------------------------------------------
+// Content (SEO surface) and operations
+// -----------------------------------------------------------------------------
+
+model Post {
+  id      String @id @default(cuid())
+  slug    String @unique
+  title   String
+  excerpt String
+  content String // markdown
+
+  coverImage String?
+  category   String  @default("Market Insight")
+  tags       String[]
+
+  authorName String
+  authorRole String?
+
+  seoTitle       String?
+  seoDescription String?
+
+  readingMinutes Int      @default(4)
+  views          Int      @default(0)
+  published      Boolean  @default(false)
+  publishedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([published, publishedAt])
+  @@index([category])
+  @@map("posts")
+}
+
+model ContactMessage {
+  id      String  @id @default(cuid())
+  name    String
+  email   String
+  phone   String?
+  subject String
+  message String
+
+  investmentRange String?
+  source          String? // utm_source or referring page
+  status          LeadStatus @default(NEW)
+  ip              String?
+
+  createdAt DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@map("contact_messages")
+}
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type  NotificationType @default(INFO)
+  title String
+  body  String
+  href  String?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String  @id @default(cuid())
+  actorId    String?
+  actor      User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorEmail String?
+
+  action     String // e.g. "deposit.approve"
+  entityType String
+  entityId   String?
+
+  before Json?
+  after  Json?
+
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+/// Key/value platform configuration editable from the admin console.
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}

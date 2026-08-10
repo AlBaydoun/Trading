@@ -1,0 +1,293 @@
+import "server-only";
+
+import { AssetKind, Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { toNumber } from "@/lib/money";
+import { seededRandom } from "@/lib/utils";
+import {
+  TRACKED_EQUITIES,
+  fetchCryptoQuotes,
+  fetchEquityQuotes,
+  fetchGlobalCryptoStats,
+  type ProviderQuote,
+} from "@/lib/market/providers";
+import type { MarketSnapshot, Quote, QuoteSource } from "@/lib/market/types";
+
+/**
+ * Reads always come from our own database; writes come from a refresh. That
+ * keeps page rendering fast and independent of any third party's uptime, and it
+ * means a rate-limited provider degrades the *freshness* of the data rather
+ * than the availability of the site.
+ */
+
+const STALE_AFTER_MS = 5 * 60_000;
+
+/** Guards against a refresh stampede when several requests find stale data. */
+let refreshInFlight: Promise<{ updated: number; source: QuoteSource }> | null = null;
+
+function toQuote(asset: {
+  symbol: string;
+  name: string;
+  kind: AssetKind;
+  priceUsd: Prisma.Decimal;
+  change24hPct: Prisma.Decimal;
+  change7dPct: Prisma.Decimal;
+  marketCapUsd: Prisma.Decimal | null;
+  volume24hUsd: Prisma.Decimal | null;
+  logoUrl: string | null;
+  sparkline: Prisma.JsonValue;
+  rank: number | null;
+  updatedAt: Date;
+}): Quote {
+  return {
+    symbol: asset.symbol,
+    name: asset.name,
+    kind: asset.kind,
+    price: toNumber(asset.priceUsd),
+    change24hPct: toNumber(asset.change24hPct),
+    change7dPct: toNumber(asset.change7dPct),
+    marketCap: asset.marketCapUsd ? toNumber(asset.marketCapUsd) : null,
+    volume24h: asset.volume24hUsd ? toNumber(asset.volume24hUsd) : null,
+    logoUrl: asset.logoUrl,
+    sparkline: Array.isArray(asset.sparkline)
+      ? (asset.sparkline as number[]).filter((n) => typeof n === "number")
+      : [],
+    rank: asset.rank,
+    updatedAt: asset.updatedAt.toISOString(),
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Refresh
+// -----------------------------------------------------------------------------
+
+async function persistQuotes(quotes: ProviderQuote[]): Promise<number> {
+  let updated = 0;
+
+  for (const quote of quotes) {
+    if (!Number.isFinite(quote.price) || quote.price <= 0) continue;
+
+    const data = {
+      name: quote.name,
+      kind: quote.kind,
+      priceUsd: new Prisma.Decimal(quote.price.toFixed(8)),
+      change24hPct: new Prisma.Decimal(quote.change24hPct.toFixed(4)),
+      change7dPct: new Prisma.Decimal(quote.change7dPct.toFixed(4)),
+      marketCapUsd:
+        quote.marketCap != null ? new Prisma.Decimal(quote.marketCap.toFixed(2)) : null,
+      volume24hUsd:
+        quote.volume24h != null ? new Prisma.Decimal(quote.volume24h.toFixed(2)) : null,
+      circulating:
+        quote.circulating != null ? new Prisma.Decimal(quote.circulating.toFixed(4)) : null,
+      logoUrl: quote.logoUrl,
+      sparkline: quote.sparkline.length > 0 ? quote.sparkline : undefined,
+      rank: quote.rank,
+      coingeckoId: quote.coingeckoId ?? null,
+      exchange: quote.exchange ?? null,
+      isActive: true,
+    };
+
+    await prisma.asset.upsert({
+      where: { symbol: quote.symbol },
+      update: data,
+      create: { symbol: quote.symbol, ...data },
+    });
+
+    updated += 1;
+  }
+
+  return updated;
+}
+
+/**
+ * Pulls fresh prices from every configured provider and writes them through.
+ * Safe to call concurrently — callers share one in-flight refresh.
+ */
+export function refreshMarketData(): Promise<{ updated: number; source: QuoteSource }> {
+  if (refreshInFlight) return refreshInFlight;
+
+  const run = (async () => {
+    let updated = 0;
+    let source: QuoteSource = "cached";
+
+    const crypto = await fetchCryptoQuotes(60);
+    if (crypto) {
+      updated += await persistQuotes(crypto);
+      source = "live";
+    }
+
+    const equities = await fetchEquityQuotes();
+    if (equities) {
+      updated += await persistQuotes(equities);
+      source = "live";
+    } else {
+      // No equity provider key: nudge the seeded prices along a small random
+      // walk so the board is not frozen. Flagged as simulated everywhere.
+      updated += await driftSimulatedEquities();
+      if (source !== "live") source = "simulated";
+    }
+
+    await captureSnapshots();
+    return { updated, source };
+  })();
+
+  // Release the guard once this run settles, successfully or not.
+  refreshInFlight = run.finally(() => {
+    refreshInFlight = null;
+  });
+
+  return refreshInFlight;
+}
+
+/**
+ * Deterministic-per-hour drift for equity rows when no provider is configured.
+ * Uses a seeded generator so the same hour always yields the same price and the
+ * server and client cannot disagree.
+ */
+async function driftSimulatedEquities(): Promise<number> {
+  const symbols = TRACKED_EQUITIES.map((e) => e.symbol);
+  const assets = await prisma.asset.findMany({
+    where: { symbol: { in: symbols } },
+  });
+
+  const hourBucket = Math.floor(Date.now() / 3_600_000);
+  let updated = 0;
+
+  for (const asset of assets) {
+    const rand = seededRandom(`${asset.symbol}:${hourBucket}`);
+    // ±1.4% band — realistic intraday movement, never a headline-making jump.
+    const drift = (rand() - 0.5) * 0.028;
+    const base = toNumber(asset.priceUsd);
+    if (base <= 0) continue;
+
+    const next = Math.max(0.01, base * (1 + drift));
+
+    await prisma.asset.update({
+      where: { id: asset.id },
+      data: {
+        priceUsd: new Prisma.Decimal(next.toFixed(4)),
+        change24hPct: new Prisma.Decimal((drift * 100).toFixed(4)),
+      },
+    });
+    updated += 1;
+  }
+
+  return updated;
+}
+
+/** Keeps a thin price history for the charts on the markets page. */
+async function captureSnapshots(): Promise<void> {
+  const assets = await prisma.asset.findMany({
+    where: { isFeatured: true },
+    select: { id: true, priceUsd: true },
+  });
+
+  if (assets.length === 0) return;
+
+  await prisma.priceSnapshot.createMany({
+    data: assets.map((a) => ({ assetId: a.id, priceUsd: a.priceUsd })),
+  });
+
+  // Retain 30 days; beyond that the table grows without adding value.
+  await prisma.priceSnapshot.deleteMany({
+    where: { capturedAt: { lt: new Date(Date.now() - 30 * 86_400_000) } },
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Reads
+// -----------------------------------------------------------------------------
+
+async function isStale(): Promise<boolean> {
+  const newest = await prisma.asset.findFirst({
+    orderBy: { updatedAt: "desc" },
+    select: { updatedAt: true },
+  });
+  if (!newest) return true;
+  return Date.now() - newest.updatedAt.getTime() > STALE_AFTER_MS;
+}
+
+export async function getMarketSnapshot(options: {
+  kind?: AssetKind;
+  limit?: number;
+  featuredOnly?: boolean;
+} = {}): Promise<MarketSnapshot> {
+  const { kind, limit = 30, featuredOnly = false } = options;
+
+  let source: QuoteSource = "cached";
+  let warning: string | undefined;
+
+  if (await isStale()) {
+    try {
+      const result = await refreshMarketData();
+      source = result.source;
+    } catch (error) {
+      warning = "Live prices are temporarily unavailable — showing last known values.";
+      console.error("[market] refresh failed", error);
+    }
+  }
+
+  const assets = await prisma.asset.findMany({
+    where: {
+      isActive: true,
+      ...(kind ? { kind } : {}),
+      ...(featuredOnly ? { isFeatured: true } : {}),
+    },
+    orderBy: [{ rank: { sort: "asc", nulls: "last" } }, { marketCapUsd: "desc" }],
+    take: limit,
+  });
+
+  // Equity rows are indicative whenever no provider key is set.
+  if (!process.env.FINNHUB_API_KEY && assets.some((a) => a.kind !== AssetKind.CRYPTO)) {
+    if (source === "live") source = "cached";
+  }
+
+  return {
+    quotes: assets.map(toQuote),
+    source,
+    fetchedAt: new Date().toISOString(),
+    warning,
+  };
+}
+
+export async function getTickerQuotes(limit = 14): Promise<Quote[]> {
+  const snapshot = await getMarketSnapshot({ limit, featuredOnly: true });
+  if (snapshot.quotes.length > 0) return snapshot.quotes;
+  // Featured list not configured yet — fall back to the top of the board.
+  return (await getMarketSnapshot({ limit })).quotes;
+}
+
+export async function getMarketStats() {
+  const [global, aggregate, movers] = await Promise.all([
+    fetchGlobalCryptoStats(),
+    prisma.asset.aggregate({
+      where: { kind: AssetKind.CRYPTO, isActive: true },
+      _sum: { marketCapUsd: true, volume24hUsd: true },
+    }),
+    prisma.asset.findMany({
+      where: { isActive: true, kind: AssetKind.CRYPTO },
+      orderBy: { change24hPct: "desc" },
+      take: 60,
+    }),
+  ]);
+
+  const quotes = movers.map(toQuote);
+  const ranked = [...quotes].sort((a, b) => b.change24hPct - a.change24hPct);
+
+  return {
+    totalMarketCap:
+      global?.totalMarketCap ?? toNumber(aggregate._sum.marketCapUsd ?? 0),
+    totalVolume24h:
+      global?.totalVolume24h ?? toNumber(aggregate._sum.volume24hUsd ?? 0),
+    btcDominancePct: global?.btcDominancePct ?? 0,
+    gainers: ranked.slice(0, 5),
+    losers: ranked.slice(-5).reverse(),
+  };
+}
+
+export async function getAssetBySymbol(symbol: string): Promise<Quote | null> {
+  const asset = await prisma.asset.findUnique({
+    where: { symbol: symbol.toUpperCase() },
+  });
+  return asset ? toQuote(asset) : null;
+}

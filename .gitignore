@@ -1,0 +1,44 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+/dist
+
+# misc
+.DS_Store
+*.pem
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files — never commit real secrets
+.env
+.env*.local
+.env.production
+
+# uploads (KYC documents, deposit proofs) — served from object storage in prod
+/public/uploads/*
+!/public/uploads/.gitkeep
+
+# typescript
+*.tsbuildinfo
+
+# testing
+/coverage
+/playwright-report
+/test-results
