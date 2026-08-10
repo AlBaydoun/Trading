@@ -4,10 +4,16 @@ import { absoluteUrl, siteConfig } from "@/lib/site-config";
 export default function robots(): MetadataRoute.Robots {
   // Staging and preview deployments must never be indexed — one accidental
   // crawl of a preview URL competes with production for the same content.
-  const isProduction =
-    process.env.VERCEL_ENV === "production" ||
-    (process.env.NODE_ENV === "production" && !process.env.VERCEL_ENV) ||
-    siteConfig.url.startsWith("https://");
+  //
+  // Order matters here. A Vercel preview is served over https just like
+  // production, so the https check alone would wave every preview through;
+  // VERCEL_ENV has to be consulted first and treated as authoritative.
+  const vercelEnv = process.env.VERCEL_ENV;
+
+  const isProduction = vercelEnv
+    ? vercelEnv === "production"
+    : process.env.NODE_ENV === "production" &&
+      siteConfig.url.startsWith("https://");
 
   if (!isProduction) {
     return {

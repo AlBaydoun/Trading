@@ -1,0 +1,84 @@
+name: Database setup
+
+# Run migrations (and optionally seed) against a hosted database without
+# needing a terminal. Actions → "Database setup" → "Run workflow".
+#
+# Requires two repository secrets, from Supabase → Connect:
+#   DATABASE_URL  transaction pooler, port 6543, with ?pgbouncer=true&connection_limit=1
+#   DIRECT_URL    session pooler,     port 5432
+#
+# Use the SESSION pooler for DIRECT_URL rather than the db.<ref>.supabase.co
+# host: that host is IPv6-only on the free tier and GitHub runners are IPv4,
+# so a direct connection there times out with no useful error.
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Also seed mandates, market assets, articles and demo accounts"
+        type: boolean
+        default: true
+      admin_email:
+        description: "Email for the first admin account"
+        type: string
+        default: admin@axiomcapital.example
+
+jobs:
+  setup:
+    name: Migrate and seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      SEED_ADMIN_EMAIL: ${{ inputs.admin_email }}
+      SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check the secrets are present
+        run: |
+          missing=0
+          for var in DATABASE_URL DIRECT_URL SEED_ADMIN_PASSWORD; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Repository secret $var is not set. Add it under Settings → Secrets and variables → Actions."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed
+        if: ${{ inputs.seed }}
+        run: npm run db:seed
+
+      - name: Confirm the ledger reconciles
+        if: ${{ inputs.seed }}
+        run: npm run verify:ops
+
+      - name: Summary
+        run: |
+          {
+            echo "### Database ready"
+            echo ""
+            echo "Migrations applied to the database behind \`DATABASE_URL\`."
+            if [ "${{ inputs.seed }}" = "true" ]; then
+              echo "Seeded with five mandates, market assets, six articles and demo accounts."
+              echo ""
+              echo "Sign in as \`${{ inputs.admin_email }}\` with the password stored in the \`SEED_ADMIN_PASSWORD\` secret."
+            fi
+            echo ""
+            echo "Next: deploy on Vercel with the same \`DATABASE_URL\` and \`DIRECT_URL\`."
+          } >> "$GITHUB_STEP_SUMMARY"

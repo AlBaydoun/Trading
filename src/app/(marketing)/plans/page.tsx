@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { prisma } from "@/lib/prisma";
+import { prisma, safeQuery } from "@/lib/prisma";
 import { toNumber } from "@/lib/money";
 import { buildMetadata, JsonLd, breadcrumbSchema } from "@/lib/seo";
 import { absoluteUrl } from "@/lib/site-config";
@@ -41,10 +41,15 @@ const RISK_TONE: Record<string, "mint" | "brand" | "gold" | "loss"> = {
 };
 
 export default async function PlansPage() {
-  const plans = await prisma.investmentPlan.findMany({
-    where: { isActive: true },
-    orderBy: { sortOrder: "asc" },
-  });
+  const plans = await safeQuery(
+    () =>
+      prisma.investmentPlan.findMany({
+        where: { isActive: true },
+        orderBy: { sortOrder: "asc" },
+      }),
+    [],
+    "investment plans",
+  );
 
   const cards: PlanCardData[] = plans.map((plan) => ({
     slug: plan.slug,

@@ -24,11 +24,18 @@ interface PageProps {
 export const revalidate = 1800;
 
 export async function generateStaticParams() {
-  const posts = await prisma.post.findMany({
-    where: { published: true },
-    select: { slug: true },
-  });
-  return posts.map((post) => ({ slug: post.slug }));
+  // See the note in plans/[slug]: prerendering is an optimisation, so a
+  // database that is not ready at build time must not fail the build.
+  try {
+    const posts = await prisma.post.findMany({
+      where: { published: true },
+      select: { slug: true },
+    });
+    return posts.map((post) => ({ slug: post.slug }));
+  } catch {
+    console.warn("[build] posts unavailable — rendering articles on demand");
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {

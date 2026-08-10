@@ -1,7 +1,7 @@
 import "server-only";
 
 import { AssetKind, Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, safeQuery } from "@/lib/prisma";
 import { toNumber } from "@/lib/money";
 import { seededRandom } from "@/lib/utils";
 import {
@@ -199,10 +199,15 @@ async function captureSnapshots(): Promise<void> {
 // -----------------------------------------------------------------------------
 
 async function isStale(): Promise<boolean> {
-  const newest = await prisma.asset.findFirst({
-    orderBy: { updatedAt: "desc" },
-    select: { updatedAt: true },
-  });
+  const newest = await safeQuery(
+    () =>
+      prisma.asset.findFirst({
+        orderBy: { updatedAt: "desc" },
+        select: { updatedAt: true },
+      }),
+    null,
+    "asset freshness check",
+  );
   if (!newest) return true;
   return Date.now() - newest.updatedAt.getTime() > STALE_AFTER_MS;
 }
@@ -223,19 +228,24 @@ export async function getMarketSnapshot(options: {
       source = result.source;
     } catch (error) {
       warning = "Live prices are temporarily unavailable — showing last known values.";
-      console.error("[market] refresh failed", error);
+      console.warn("[market] refresh failed", error);
     }
   }
 
-  const assets = await prisma.asset.findMany({
-    where: {
-      isActive: true,
-      ...(kind ? { kind } : {}),
-      ...(featuredOnly ? { isFeatured: true } : {}),
-    },
-    orderBy: [{ rank: { sort: "asc", nulls: "last" } }, { marketCapUsd: "desc" }],
-    take: limit,
-  });
+  const assets = await safeQuery(
+    () =>
+      prisma.asset.findMany({
+        where: {
+          isActive: true,
+          ...(kind ? { kind } : {}),
+          ...(featuredOnly ? { isFeatured: true } : {}),
+        },
+        orderBy: [{ rank: { sort: "asc", nulls: "last" } }, { marketCapUsd: "desc" }],
+        take: limit,
+      }),
+    [],
+    "market board",
+  );
 
   // Equity rows are indicative whenever no provider key is set.
   if (!process.env.FINNHUB_API_KEY && assets.some((a) => a.kind !== AssetKind.CRYPTO)) {
@@ -260,15 +270,25 @@ export async function getTickerQuotes(limit = 14): Promise<Quote[]> {
 export async function getMarketStats() {
   const [global, aggregate, movers] = await Promise.all([
     fetchGlobalCryptoStats(),
-    prisma.asset.aggregate({
-      where: { kind: AssetKind.CRYPTO, isActive: true },
-      _sum: { marketCapUsd: true, volume24hUsd: true },
-    }),
-    prisma.asset.findMany({
-      where: { isActive: true, kind: AssetKind.CRYPTO },
-      orderBy: { change24hPct: "desc" },
-      take: 60,
-    }),
+    safeQuery(
+      () =>
+        prisma.asset.aggregate({
+          where: { kind: AssetKind.CRYPTO, isActive: true },
+          _sum: { marketCapUsd: true, volume24hUsd: true },
+        }),
+      { _sum: { marketCapUsd: null, volume24hUsd: null } },
+      "market aggregate",
+    ),
+    safeQuery(
+      () =>
+        prisma.asset.findMany({
+          where: { isActive: true, kind: AssetKind.CRYPTO },
+          orderBy: { change24hPct: "desc" },
+          take: 60,
+        }),
+      [],
+      "market movers",
+    ),
   ]);
 
   const quotes = movers.map(toQuote);

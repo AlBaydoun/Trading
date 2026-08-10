@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { prisma, safeQuery } from "@/lib/prisma";
 import { formatDate } from "@/lib/money";
 import { buildMetadata, JsonLd, breadcrumbSchema } from "@/lib/seo";
 import { absoluteUrl } from "@/lib/site-config";
@@ -30,40 +30,50 @@ interface PageProps {
 export default async function InsightsPage({ searchParams }: PageProps) {
   const { category, q } = await searchParams;
 
-  const posts = await prisma.post.findMany({
-    where: {
-      published: true,
-      ...(category ? { category } : {}),
-      ...(q
-        ? {
-            OR: [
-              { title: { contains: q, mode: "insensitive" } },
-              { excerpt: { contains: q, mode: "insensitive" } },
-              { tags: { has: q.toLowerCase() } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { publishedAt: "desc" },
-    select: {
-      slug: true,
-      title: true,
-      excerpt: true,
-      category: true,
-      tags: true,
-      authorName: true,
-      authorRole: true,
-      publishedAt: true,
-      readingMinutes: true,
-    },
-  });
+  const posts = await safeQuery(
+    () =>
+      prisma.post.findMany({
+        where: {
+          published: true,
+          ...(category ? { category } : {}),
+          ...(q
+            ? {
+                OR: [
+                  { title: { contains: q, mode: "insensitive" } },
+                  { excerpt: { contains: q, mode: "insensitive" } },
+                  { tags: { has: q.toLowerCase() } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: { publishedAt: "desc" },
+        select: {
+          slug: true,
+          title: true,
+          excerpt: true,
+          category: true,
+          tags: true,
+          authorName: true,
+          authorRole: true,
+          publishedAt: true,
+          readingMinutes: true,
+        },
+      }),
+    [],
+    "articles",
+  );
 
-  const categories = await prisma.post.groupBy({
-    by: ["category"],
-    where: { published: true },
-    _count: { category: true },
-    orderBy: { _count: { category: "desc" } },
-  });
+  const categories = await safeQuery(
+    () =>
+      prisma.post.groupBy({
+        by: ["category"],
+        where: { published: true },
+        _count: { category: true },
+        orderBy: { _count: { category: "desc" } },
+      }),
+    [],
+    "article categories",
+  );
 
   const [featured, ...rest] = posts;
 
@@ -133,7 +143,10 @@ export default async function InsightsPage({ searchParams }: PageProps) {
             title="Nothing matches that filter"
             description="Try a different category, or browse everything."
             action={
-              <Link href="/insights" className="text-brand-bright hover:text-mint">
+              <Link
+                href="/insights"
+                className="text-brand-bright hover:text-mint"
+              >
                 View all articles
               </Link>
             }
@@ -170,7 +183,9 @@ export default async function InsightsPage({ searchParams }: PageProps) {
                     </p>
 
                     <div className="mt-7 flex flex-wrap items-center gap-2 text-[13px] text-ink-faint">
-                      <span className="text-ink-muted">{featured.authorName}</span>
+                      <span className="text-ink-muted">
+                        {featured.authorName}
+                      </span>
                       {featured.authorRole && (
                         <>
                           <span aria-hidden="true">·</span>

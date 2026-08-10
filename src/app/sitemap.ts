@@ -35,17 +35,27 @@ function entry(
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [plans, posts] = await Promise.all([
-    prisma.investmentPlan.findMany({
-      where: { isActive: true },
-      select: { slug: true, updatedAt: true },
-    }),
-    prisma.post.findMany({
-      where: { published: true },
-      select: { slug: true, updatedAt: true, publishedAt: true },
-      orderBy: { publishedAt: "desc" },
-    }),
-  ]);
+  // The static pages below are the part that must never be missing. If the
+  // database is unreachable, serve those rather than returning a 500 and
+  // leaving search engines with no sitemap at all.
+  let plans: { slug: string; updatedAt: Date }[] = [];
+  let posts: { slug: string; updatedAt: Date; publishedAt: Date | null }[] = [];
+
+  try {
+    [plans, posts] = await Promise.all([
+      prisma.investmentPlan.findMany({
+        where: { isActive: true },
+        select: { slug: true, updatedAt: true },
+      }),
+      prisma.post.findMany({
+        where: { published: true },
+        select: { slug: true, updatedAt: true, publishedAt: true },
+        orderBy: { publishedAt: "desc" },
+      }),
+    ]);
+  } catch {
+    console.warn("[sitemap] database unavailable — serving static routes only");
+  }
 
   const staticPages: Entry[] = [
     entry("/", { changeFrequency: "daily", priority: 1 }),

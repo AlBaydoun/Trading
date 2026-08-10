@@ -220,6 +220,9 @@ provider degrades the *freshness* of prices, never the availability of the site.
 
 ## Deploying
 
+**[DEPLOY.md](./DEPLOY.md) walks through Supabase + Vercel click by click**, no
+terminal needed. The summary:
+
 1. Provision PostgreSQL and set `DATABASE_URL` and `DIRECT_URL`.
 2. Set `AUTH_SECRET` (`openssl rand -base64 48`) and `NEXT_PUBLIC_SITE_URL`.
 3. `npm run db:deploy` to apply migrations, then `npm run db:seed` if you want

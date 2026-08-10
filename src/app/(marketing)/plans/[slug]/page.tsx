@@ -30,11 +30,20 @@ interface PageProps {
 export const revalidate = 600;
 
 export async function generateStaticParams() {
-  const plans = await prisma.investmentPlan.findMany({
-    where: { isActive: true },
-    select: { slug: true },
-  });
-  return plans.map((plan) => ({ slug: plan.slug }));
+  // A first deploy often builds before migrations have run, and prerendering
+  // is an optimisation rather than a requirement — so an unreachable or empty
+  // database yields an empty list and every page is rendered on demand instead
+  // of failing the build with a confusing Prisma error.
+  try {
+    const plans = await prisma.investmentPlan.findMany({
+      where: { isActive: true },
+      select: { slug: true },
+    });
+    return plans.map((plan) => ({ slug: plan.slug }));
+  } catch {
+    console.warn("[build] plans unavailable — rendering plan pages on demand");
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {

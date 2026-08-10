@@ -12,7 +12,8 @@ import {
   ShieldCheck,
   Wallet,
 } from "lucide-react";
-import { prisma } from "@/lib/prisma";
+import { prisma, safeQuery } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { getPlatformTotals } from "@/lib/ledger";
 import { getMarketSnapshot } from "@/lib/market/service";
 import { toNumber, formatCompactMoney, formatPrice, formatDate } from "@/lib/money";
@@ -49,30 +50,57 @@ export const metadata: Metadata = buildMetadata({
 // it at build time so the figures stay current without hitting the DB per view.
 export const revalidate = 300;
 
+/** Fallback for the totals block when the ledger cannot be read. */
+const ZERO = new Prisma.Decimal(0);
+
 export default async function HomePage() {
+  // The home page is the single most costly page to have go down, and it is
+  // rendered at build time on a first deploy — before migrations have run. Each
+  // query degrades independently rather than taking the page with it.
   const [totals, investorCount, plans, market, posts] = await Promise.all([
-    getPlatformTotals(),
-    prisma.user.count({ where: { role: "USER", status: "ACTIVE" } }),
-    prisma.investmentPlan.findMany({
-      where: { isActive: true },
-      orderBy: [{ isFeatured: "desc" }, { sortOrder: "asc" }],
-      take: 3,
-    }),
-    getMarketSnapshot({ limit: 6, featuredOnly: true }),
-    prisma.post.findMany({
-      where: { published: true },
-      orderBy: { publishedAt: "desc" },
-      take: 3,
-      select: {
-        slug: true,
-        title: true,
-        excerpt: true,
-        category: true,
-        publishedAt: true,
-        readingMinutes: true,
-        authorName: true,
+    safeQuery(
+      () => getPlatformTotals(),
+      {
+        assets: ZERO, liabilities: ZERO, income: ZERO, expenses: ZERO,
+        netRevenue: ZERO, aum: ZERO,
       },
-    }),
+      "platform totals",
+    ),
+    safeQuery(
+      () => prisma.user.count({ where: { role: "USER", status: "ACTIVE" } }),
+      0,
+      "investor count",
+    ),
+    safeQuery(
+      () =>
+        prisma.investmentPlan.findMany({
+          where: { isActive: true },
+          orderBy: [{ isFeatured: "desc" }, { sortOrder: "asc" }],
+          take: 3,
+        }),
+      [],
+      "featured plans",
+    ),
+    getMarketSnapshot({ limit: 6, featuredOnly: true }),
+    safeQuery(
+      () =>
+        prisma.post.findMany({
+          where: { published: true },
+          orderBy: { publishedAt: "desc" },
+          take: 3,
+          select: {
+            slug: true,
+            title: true,
+            excerpt: true,
+            category: true,
+            publishedAt: true,
+            readingMinutes: true,
+            authorName: true,
+          },
+        }),
+      [],
+      "latest articles",
+    ),
   ]);
 
   const planCards: PlanCardData[] = plans.map((plan) => ({

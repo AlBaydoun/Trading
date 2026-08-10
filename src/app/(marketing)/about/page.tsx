@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ArrowRight } from "lucide-react";
-import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { prisma, safeQuery } from "@/lib/prisma";
 import { getPlatformTotals } from "@/lib/ledger";
 import { formatCompactMoney } from "@/lib/money";
 import { buildMetadata, JsonLd, breadcrumbSchema } from "@/lib/seo";
@@ -70,10 +71,20 @@ const TEAM = [
 ];
 
 export default async function AboutPage() {
+  const zero = new Prisma.Decimal(0);
+
   const [totals, investors, plans] = await Promise.all([
-    getPlatformTotals(),
-    prisma.user.count({ where: { role: "USER" } }),
-    prisma.investmentPlan.count({ where: { isActive: true } }),
+    safeQuery(
+      () => getPlatformTotals(),
+      { assets: zero, liabilities: zero, income: zero, expenses: zero, netRevenue: zero, aum: zero },
+      "platform totals",
+    ),
+    safeQuery(() => prisma.user.count({ where: { role: "USER" } }), 0, "investor count"),
+    safeQuery(
+      () => prisma.investmentPlan.count({ where: { isActive: true } }),
+      0,
+      "active plan count",
+    ),
   ]);
 
   return (

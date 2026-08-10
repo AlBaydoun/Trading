@@ -14,20 +14,36 @@ function xml(value: string): string {
 }
 
 export async function GET() {
-  const posts = await prisma.post.findMany({
-    where: { published: true },
-    orderBy: { publishedAt: "desc" },
-    take: 40,
-    select: {
-      slug: true,
-      title: true,
-      excerpt: true,
-      publishedAt: true,
-      authorName: true,
-      category: true,
-      tags: true,
-    },
-  });
+  // An empty feed is a valid feed; a 500 is not. Readers poll this endpoint on
+  // a schedule and handle "no items" gracefully.
+  let posts: {
+    slug: string;
+    title: string;
+    excerpt: string;
+    publishedAt: Date | null;
+    authorName: string;
+    category: string;
+    tags: string[];
+  }[] = [];
+
+  try {
+    posts = await prisma.post.findMany({
+      where: { published: true },
+      orderBy: { publishedAt: "desc" },
+      take: 40,
+      select: {
+        slug: true,
+        title: true,
+        excerpt: true,
+        publishedAt: true,
+        authorName: true,
+        category: true,
+        tags: true,
+      },
+    });
+  } catch {
+    console.warn("[feed] database unavailable — serving an empty feed");
+  }
 
   const updated = posts[0]?.publishedAt ?? new Date();
 
