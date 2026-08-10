@@ -26,17 +26,9 @@ import {
   profileSchema,
   fieldErrors,
   checkboxToBool,
-  type FieldErrors,
 } from "@/lib/validation";
+import type { FormState } from "@/lib/form-state";
 import { clientIp } from "@/lib/utils";
-
-export interface FormState {
-  ok: boolean;
-  message?: string;
-  errors?: FieldErrors;
-}
-
-export const emptyFormState: FormState = { ok: false };
 
 /** Lock an account after this many consecutive failures. */
 const MAX_FAILED_LOGINS = 6;

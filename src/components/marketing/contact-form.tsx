@@ -1,11 +1,10 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
-import {
-  submitContactAction,
-  emptyContactState,
-} from "@/actions/contact";
+import { submitContactAction } from "@/actions/contact";
+import { emptyContactState } from "@/lib/form-state";
 import { Button } from "@/components/ui/button";
 import {
   Field,
@@ -132,9 +131,9 @@ export function ContactForm() {
       <div className="flex flex-col gap-4 pt-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-[12px] leading-relaxed text-ink-faint">
           We use your details only to reply. Read the{" "}
-          <a href="/legal/privacy" className="text-brand-bright hover:text-mint">
+          <Link href="/legal/privacy" className="text-brand-bright hover:text-mint">
             privacy policy
-          </a>
+          </Link>
           .
         </p>
         <Button type="submit" loading={pending} size="lg" className="shrink-0">

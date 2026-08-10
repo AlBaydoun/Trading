@@ -266,8 +266,8 @@ export default async function PlanPage({ params }: PageProps) {
                         : "There is no lock-up, but exiting during a drawdown crystallises the loss."}
                     </p>
                     <p>
-                      Target returns are objectives derived from the strategy's
-                      assumptions. When those assumptions do not hold, the
+                      Target returns are objectives derived from the
+                      strategy&apos;s assumptions. When those do not hold, the
                       outcome falls outside the range in either direction.
                     </p>
                   </div>

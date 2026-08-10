@@ -3,7 +3,8 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
-import { loginAction, emptyFormState } from "@/actions/auth";
+import { loginAction } from "@/actions/auth";
+import { emptyFormState } from "@/lib/form-state";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Checkbox, FormMessage } from "@/components/ui/form";
 

@@ -2,17 +2,10 @@
 
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { contactSchema, fieldErrors, type FieldErrors } from "@/lib/validation";
+import { contactSchema, fieldErrors } from "@/lib/validation";
+import type { ContactState } from "@/lib/form-state";
 import { checkLimit, retryAfterMessage } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/utils";
-
-export interface ContactState {
-  ok: boolean;
-  message?: string;
-  errors?: FieldErrors;
-}
-
-export const emptyContactState: ContactState = { ok: false };
 
 export async function submitContactAction(
   _prev: ContactState,

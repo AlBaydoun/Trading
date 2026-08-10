@@ -3,8 +3,9 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
-import { registerAction, emptyFormState } from "@/actions/auth";
-import { assessPassword } from "@/lib/auth/password";
+import { registerAction } from "@/actions/auth";
+import { emptyFormState } from "@/lib/form-state";
+import { assessPassword } from "@/lib/auth/password-policy";
 import { Button } from "@/components/ui/button";
 import {
   Field,

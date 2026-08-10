@@ -42,3 +42,6 @@ yarn-error.log*
 /coverage
 /playwright-report
 /test-results
+
+# KYC documents and payment proofs — never commit these
+/private-uploads
