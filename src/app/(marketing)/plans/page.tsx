@@ -12,9 +12,9 @@ import { Panel, Table, Td, Th, Badge } from "@/components/ui/primitives";
 import { Reveal } from "@/components/motion/reveal";
 
 export const metadata: Metadata = buildMetadata({
-  title: "Investment Plans — Crypto & Equity Mandates",
+  title: "Investment Plans — Multi-Asset Managed Mandates",
   description:
-    "Five managed mandates from dollar income to concentrated digital-asset growth. Compare target returns, minimums, lock-up periods, fees and expected drawdown side by side.",
+    "Eight managed mandates spanning equities, crypto, currencies, commodities, bonds and property. Compare target returns, minimums, lock-up periods, fees and expected drawdown side by side.",
   path: "/plans",
   keywords: [
     "crypto investment plans",
@@ -93,7 +93,7 @@ export default async function PlansPage() {
       <Section className="pt-36 md:pt-44">
         <SectionHeading
           eyebrow="Mandates"
-          title="Five ways to put capital to work."
+          title="Eight ways to put capital to work."
           description="Each mandate is a published strategy with a stated allocation, a stated fee schedule and a stated tolerance for drawdown. Read the one that matches how much volatility you can actually live with — not the one with the biggest number."
         />
 

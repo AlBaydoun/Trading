@@ -45,9 +45,9 @@ export const siteConfig = {
   name: "Axiom Capital",
   shortName: "Axiom",
   legalName: "Axiom Capital Markets Ltd.",
-  tagline: "Managed exposure to crypto and equity markets",
+  tagline: "Managed exposure to every major market",
   description:
-    "Axiom Capital gives investors managed, risk-controlled exposure to cryptocurrency and global equity markets. Track every position, every fee and every basis point of performance in one account.",
+    "Axiom Capital gives investors managed, risk-controlled exposure across cryptocurrency, global equities, foreign exchange, commodities, bonds and listed property. Track every position, every fee and every basis point of performance in one account.",
   url: resolveBaseUrl(),
   locale: DEFAULT_LOCALE,
 
@@ -84,19 +84,21 @@ export const siteConfig = {
   seo: {
     titleTemplate: "%s · Axiom Capital",
     defaultTitle:
-      "Axiom Capital · Managed Crypto & Stock Market Investing",
+      "Axiom Capital · Managed Multi-Asset Investing",
     keywords: [
+      "multi-asset investment platform",
+      "managed investment portfolio",
       "crypto investment platform",
-      "managed cryptocurrency portfolio",
       "stock market investing",
-      "digital asset management",
-      "bitcoin investment account",
-      "equity and crypto portfolio",
+      "forex managed account",
+      "commodities and gold investing",
+      "bond and fixed income investing",
+      "real estate investment trust portfolio",
+      "diversified investment account",
       "regulated investment platform",
-      "passive trading income",
     ],
     twitterHandle: "@axiomcapital",
-    ogImageAlt: "Axiom Capital — managed crypto and equity investing",
+    ogImageAlt: "Axiom Capital — managed multi-asset investing",
   },
 } as const;
 

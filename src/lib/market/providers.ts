@@ -28,6 +28,8 @@ export interface ProviderQuote {
   rank: number | null;
   coingeckoId?: string;
   exchange?: string;
+  /** Compute the change percentage from stored history instead of trusting the feed. */
+  deriveChange?: boolean;
 }
 
 async function fetchJson<T>(
@@ -207,6 +209,80 @@ export async function fetchEquityQuotes(): Promise<ProviderQuote[] | null> {
   );
 
   const quotes = results.filter((q): q is ProviderQuote => q !== null);
+  return quotes.length > 0 ? quotes : null;
+}
+
+// -----------------------------------------------------------------------------
+// Foreign exchange — exchangerate-api open endpoint
+// -----------------------------------------------------------------------------
+
+/**
+ * Major pairs, quoted the way a dealer quotes them. `inverted` marks the pairs
+ * where the dollar is the *base* currency (USD/JPY is yen per dollar), because
+ * the upstream feed is always USD-based and the other pairs need 1/rate.
+ */
+export const TRACKED_FX: {
+  symbol: string;
+  name: string;
+  currency: string;
+  inverted: boolean;
+}[] = [
+  { symbol: "EURUSD", name: "Euro / US Dollar", currency: "EUR", inverted: false },
+  { symbol: "GBPUSD", name: "British Pound / US Dollar", currency: "GBP", inverted: false },
+  { symbol: "AUDUSD", name: "Australian Dollar / US Dollar", currency: "AUD", inverted: false },
+  { symbol: "NZDUSD", name: "New Zealand Dollar / US Dollar", currency: "NZD", inverted: false },
+  { symbol: "USDJPY", name: "US Dollar / Japanese Yen", currency: "JPY", inverted: true },
+  { symbol: "USDCHF", name: "US Dollar / Swiss Franc", currency: "CHF", inverted: true },
+  { symbol: "USDCAD", name: "US Dollar / Canadian Dollar", currency: "CAD", inverted: true },
+  { symbol: "USDCNY", name: "US Dollar / Chinese Yuan", currency: "CNY", inverted: true },
+];
+
+interface ErApiResponse {
+  result: string;
+  base_code: string;
+  rates: Record<string, number>;
+  time_last_update_unix?: number;
+}
+
+/**
+ * Free, key-less and refreshed daily by the provider. Rates are real; the
+ * percentage change is filled in later by comparing against our own stored
+ * history, because this endpoint returns only the current snapshot.
+ */
+export async function fetchForexQuotes(): Promise<ProviderQuote[] | null> {
+  const data = await fetchJson<ErApiResponse>(
+    "https://open.er-api.com/v6/latest/USD",
+    { revalidate: 900 },
+  );
+
+  if (!data || data.result !== "success" || !data.rates) return null;
+
+  const quotes: ProviderQuote[] = [];
+
+  for (const pair of TRACKED_FX) {
+    const rate = data.rates[pair.currency];
+    if (typeof rate !== "number" || rate <= 0) continue;
+
+    quotes.push({
+      symbol: pair.symbol,
+      name: pair.name,
+      kind: AssetKind.FOREX,
+      price: pair.inverted ? rate : 1 / rate,
+      // Left at zero deliberately — `persistQuotes` derives the real change
+      // from our price history rather than inventing one.
+      change24hPct: 0,
+      change7dPct: 0,
+      marketCap: null,
+      volume24h: null,
+      circulating: null,
+      logoUrl: null,
+      sparkline: [],
+      rank: null,
+      exchange: "FX",
+      deriveChange: true,
+    });
+  }
+
   return quotes.length > 0 ? quotes : null;
 }
 

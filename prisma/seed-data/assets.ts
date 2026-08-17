@@ -48,6 +48,52 @@ export const ASSET_SEEDS: AssetSeed[] = [
   { symbol: "BRK.B", name: "Berkshire Hathaway", kind: "EQUITY", price: 452.1, change24h: 0.15, change7d: 1.1, marketCap: 975_000_000_000, volume24h: 3_200_000, exchange: "NYSE" },
   { symbol: "SPY", name: "SPDR S&P 500 ETF", kind: "ETF", price: 558.3, change24h: 0.52, change7d: 1.9, marketCap: null, volume24h: 44_000_000, exchange: "NYSE ARCA", featured: true },
   { symbol: "QQQ", name: "Invesco QQQ Trust", kind: "ETF", price: 478.9, change24h: 0.94, change7d: 3.1, marketCap: null, volume24h: 31_000_000, exchange: "NASDAQ" },
+
+  // --- Foreign exchange -----------------------------------------------------
+  // Quoted the way a dealer quotes them: EUR/USD is dollars per euro, USD/JPY
+  // is yen per dollar. Live rates overwrite these on the first refresh.
+  { symbol: "EURUSD", name: "Euro / US Dollar", kind: "FOREX", price: 1.0876, change24h: 0.12, change7d: -0.34, marketCap: null, volume24h: null, featured: true },
+  { symbol: "GBPUSD", name: "British Pound / US Dollar", kind: "FOREX", price: 1.2712, change24h: -0.08, change7d: 0.41, marketCap: null, volume24h: null },
+  { symbol: "USDJPY", name: "US Dollar / Japanese Yen", kind: "FOREX", price: 151.42, change24h: 0.24, change7d: 1.12, marketCap: null, volume24h: null, featured: true },
+  { symbol: "USDCHF", name: "US Dollar / Swiss Franc", kind: "FOREX", price: 0.8842, change24h: -0.15, change7d: -0.22, marketCap: null, volume24h: null },
+  { symbol: "AUDUSD", name: "Australian Dollar / US Dollar", kind: "FOREX", price: 0.6584, change24h: 0.31, change7d: 0.86, marketCap: null, volume24h: null },
+  { symbol: "USDCAD", name: "US Dollar / Canadian Dollar", kind: "FOREX", price: 1.3588, change24h: -0.11, change7d: -0.48, marketCap: null, volume24h: null },
+  { symbol: "NZDUSD", name: "New Zealand Dollar / US Dollar", kind: "FOREX", price: 0.6012, change24h: 0.19, change7d: 0.52, marketCap: null, volume24h: null },
+  { symbol: "USDCNY", name: "US Dollar / Chinese Yuan", kind: "FOREX", price: 7.2364, change24h: 0.04, change7d: 0.18, marketCap: null, volume24h: null },
+
+  // --- Commodities ----------------------------------------------------------
+  { symbol: "XAUUSD", name: "Gold", kind: "COMMODITY", price: 2338.4, change24h: 0.62, change7d: 2.14, marketCap: null, volume24h: null, featured: true },
+  { symbol: "XAGUSD", name: "Silver", kind: "COMMODITY", price: 27.42, change24h: 1.08, change7d: 3.65, marketCap: null, volume24h: null },
+  { symbol: "XPTUSD", name: "Platinum", kind: "COMMODITY", price: 964.5, change24h: -0.34, change7d: 1.22, marketCap: null, volume24h: null },
+  { symbol: "WTI", name: "Crude Oil (WTI)", kind: "COMMODITY", price: 78.62, change24h: -1.24, change7d: -2.86, marketCap: null, volume24h: null, featured: true },
+  { symbol: "BRENT", name: "Crude Oil (Brent)", kind: "COMMODITY", price: 82.94, change24h: -1.06, change7d: -2.41, marketCap: null, volume24h: null },
+  { symbol: "NATGAS", name: "Natural Gas", kind: "COMMODITY", price: 2.184, change24h: 2.42, change7d: -4.18, marketCap: null, volume24h: null },
+  { symbol: "COPPER", name: "Copper", kind: "COMMODITY", price: 4.286, change24h: 0.74, change7d: 1.92, marketCap: null, volume24h: null },
+  { symbol: "WHEAT", name: "Wheat", kind: "COMMODITY", price: 594.25, change24h: -0.42, change7d: 0.88, marketCap: null, volume24h: null },
+
+  // --- Indices --------------------------------------------------------------
+  { symbol: "SPX", name: "S&P 500", kind: "INDEX", price: 5486.2, change24h: 0.48, change7d: 1.74, marketCap: null, volume24h: null, exchange: "CBOE", featured: true },
+  { symbol: "NDX", name: "Nasdaq 100", kind: "INDEX", price: 19642.8, change24h: 0.86, change7d: 2.92, marketCap: null, volume24h: null, exchange: "NASDAQ", featured: true },
+  { symbol: "DJI", name: "Dow Jones Industrial Average", kind: "INDEX", price: 39284.6, change24h: 0.22, change7d: 0.94, marketCap: null, volume24h: null, exchange: "NYSE" },
+  { symbol: "UKX", name: "FTSE 100", kind: "INDEX", price: 8214.4, change24h: 0.16, change7d: 0.62, marketCap: null, volume24h: null, exchange: "LSE" },
+  { symbol: "DAX", name: "DAX 40", kind: "INDEX", price: 18426.1, change24h: 0.34, change7d: 1.18, marketCap: null, volume24h: null, exchange: "XETRA" },
+  { symbol: "NKY", name: "Nikkei 225", kind: "INDEX", price: 39104.5, change24h: -0.52, change7d: 1.46, marketCap: null, volume24h: null, exchange: "TSE" },
+  { symbol: "VIX", name: "CBOE Volatility Index", kind: "INDEX", price: 13.24, change24h: -2.86, change7d: -6.42, marketCap: null, volume24h: null, exchange: "CBOE" },
+
+  // --- Fixed income ---------------------------------------------------------
+  // Priced as yield in percent — the convention the desk quotes them in.
+  { symbol: "US10Y", name: "US 10-Year Treasury Yield", kind: "BOND", price: 4.284, change24h: -0.42, change7d: -1.24, marketCap: null, volume24h: null, featured: true },
+  { symbol: "US02Y", name: "US 2-Year Treasury Yield", kind: "BOND", price: 4.706, change24h: -0.28, change7d: -0.92, marketCap: null, volume24h: null },
+  { symbol: "US30Y", name: "US 30-Year Treasury Yield", kind: "BOND", price: 4.412, change24h: -0.36, change7d: -1.08, marketCap: null, volume24h: null },
+  { symbol: "DE10Y", name: "German 10-Year Bund Yield", kind: "BOND", price: 2.462, change24h: -0.18, change7d: -0.64, marketCap: null, volume24h: null },
+  { symbol: "GB10Y", name: "UK 10-Year Gilt Yield", kind: "BOND", price: 4.128, change24h: -0.24, change7d: -0.86, marketCap: null, volume24h: null },
+  { symbol: "TLT", name: "iShares 20+ Year Treasury Bond ETF", kind: "BOND", price: 92.84, change24h: 0.44, change7d: 1.28, marketCap: null, volume24h: 24_000_000, exchange: "NASDAQ" },
+
+  // --- Real estate ----------------------------------------------------------
+  { symbol: "VNQ", name: "Vanguard Real Estate ETF", kind: "REIT", price: 86.42, change24h: 0.38, change7d: 1.06, marketCap: null, volume24h: 4_200_000, exchange: "NYSE ARCA", featured: true },
+  { symbol: "PLD", name: "Prologis Inc.", kind: "REIT", price: 124.68, change24h: 0.52, change7d: 1.84, marketCap: 115_000_000_000, volume24h: 3_100_000, exchange: "NYSE" },
+  { symbol: "AMT", name: "American Tower Corp.", kind: "REIT", price: 196.24, change24h: -0.28, change7d: 0.42, marketCap: 91_000_000_000, volume24h: 2_400_000, exchange: "NYSE" },
+  { symbol: "EQIX", name: "Equinix Inc.", kind: "REIT", price: 742.6, change24h: 0.66, change7d: 2.12, marketCap: 70_000_000_000, volume24h: 620_000, exchange: "NASDAQ" },
 ];
 
 /**

@@ -40,9 +40,9 @@ import { Sparkline } from "@/components/ui/sparkline";
 import { Reveal, RevealGroup, RevealItem, Parallax } from "@/components/motion/reveal";
 
 export const metadata: Metadata = buildMetadata({
-  title: "Managed Crypto & Stock Market Investing",
+  title: "Managed Multi-Asset Investing",
   description:
-    "Axiom Capital builds and runs portfolios across cryptocurrency and global equity markets. One account, live position-level transparency, and a double-entry ledger you can audit line by line.",
+    "Axiom Capital builds and runs portfolios across equities, cryptocurrency, foreign exchange, commodities, bonds and listed property. One account, live position-level transparency, and a double-entry ledger you can audit line by line.",
   path: "/",
 });
 
@@ -170,7 +170,7 @@ export default async function HomePage() {
               icon: LineChartIcon,
               step: "03",
               title: "Choose a mandate",
-              body: "Five strategies from dollar income to concentrated growth. Fees, lock-up and expected drawdown are stated before you commit.",
+              body: "Eight strategies from dollar income to concentrated growth. Fees, lock-up and expected drawdown are stated before you commit.",
             },
             {
               icon: ScrollText,
@@ -205,11 +205,11 @@ export default async function HomePage() {
       <Section className="border-y border-line bg-abyss">
         <SectionHeading
           eyebrow="Mandates"
-          title="Five strategies. One account."
-          description="Each mandate publishes its allocation, its fee schedule and the drawdown it is built to tolerate. Hold one or hold several — they settle into the same cash balance."
+          title="Eight strategies. One account."
+          description="From dollar income to global macro. Each mandate publishes its allocation, its fee schedule and the drawdown it is built to tolerate. Hold one or hold several — they settle into the same cash balance."
           action={
             <ButtonLink href="/plans" variant="outline">
-              Compare all five
+              Compare all eight
               <ArrowRight className="size-4" />
             </ButtonLink>
           }
@@ -228,8 +228,8 @@ export default async function HomePage() {
       <Section>
         <SectionHeading
           eyebrow="Live markets"
-          title="The instruments behind the mandates."
-          description="Prices refresh continuously from our market data providers. This board is the same feed the portfolio desk works from."
+          title="Every market, one board."
+          description="Equities, crypto, currencies, commodities, indices, bonds and property — prices refresh continuously from the same feed the portfolio desk works from."
           action={
             <ButtonLink href="/markets" variant="outline">
               Full market board

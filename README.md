@@ -1,7 +1,8 @@
 # Axiom Capital
 
-An investment platform for cryptocurrency and equity markets: public marketing
-site, investor dashboard, and an admin console for the people who run the desk.
+A multi-asset investment platform — equities, cryptocurrency, foreign exchange,
+commodities, indices, bonds and listed property. Public marketing site, investor
+dashboard, and an admin console for the people who run the desk.
 
 Built on Next.js 15 (App Router), TypeScript, Tailwind v4, Prisma and
 PostgreSQL. Money is tracked in a real double-entry ledger — not a balance
@@ -113,7 +114,7 @@ double-approval, over-allocation and overdraw are all rejected.
 prisma/
   schema.prisma              data model — identity, KYC, ledger, plans, content
   seed.ts                    idempotent seed with backdated ledger history
-  seed-data/                 plans, market assets, articles
+  seed-data/                 plans, market assets (8 classes), articles
 src/
   actions/                   server actions (auth, investor, admin, contact)
   app/
@@ -210,11 +211,23 @@ unmount.
 Reads always come from our own database; a refresh writes to it. A rate-limited
 provider degrades the *freshness* of prices, never the availability of the site.
 
-- Crypto: CoinGecko's public tier (no key needed; `COINGECKO_API_KEY` raises the
-  limit).
-- Equities: optional `FINNHUB_API_KEY`. Without one, seeded prices drift within
-  a narrow band on a deterministic hourly seed and are **labelled indicative
-  everywhere they appear**. Never present them as tradeable.
+Eight asset classes are tracked: crypto, equities, ETFs, forex, commodities,
+indices, bonds and REITs.
+
+- **Crypto** — CoinGecko's public tier. Live, no key needed
+  (`COINGECKO_API_KEY` raises the rate limit).
+- **Forex** — exchangerate-api's open endpoint. Live, no key. The feed returns
+  only a spot rate, so the 24-hour and 7-day changes are measured against our
+  own `PriceSnapshot` history rather than fabricated.
+- **Equities, indices, commodities, bonds, property** — optional
+  `FINNHUB_API_KEY`. Without one these drift within a ±1.4% band on a
+  deterministic hourly seed and are **labelled Indicative everywhere they
+  appear**. Never present them as tradeable.
+
+`ASSET_CLASSES` in `src/lib/market/types.ts` holds each class's label and, more
+importantly, what its price column actually means — a bond row is a yield in
+percent, an FX row is one currency in another, an index row is a level. The
+board formats each accordingly rather than putting a dollar sign on everything.
 
 ---
 

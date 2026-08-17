@@ -119,6 +119,38 @@ export function formatPrice(value: Decimalish | null | undefined): string {
   }).format(n);
 }
 
+/**
+ * Formats a quote the way its own market quotes it. A bond row is a yield in
+ * percent, an FX pair carries four or five decimals by convention, and an index
+ * is a level with no currency symbol — rendering all three as "$" would be
+ * wrong in three different ways.
+ */
+export function formatQuote(
+  value: Decimalish | null | undefined,
+  kind: string,
+): string {
+  const n = toNumber(value);
+
+  if (kind === "BOND") {
+    // Bond *funds* are priced per share; sovereign yields are percentages.
+    return Math.abs(n) < 25 ? `${n.toFixed(3)}%` : formatPrice(n);
+  }
+
+  if (kind === "FOREX") {
+    // Yen crosses trade to two decimals, everything else to four.
+    return n >= 20 ? n.toFixed(2) : n.toFixed(4);
+  }
+
+  if (kind === "INDEX") {
+    return new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
+  }
+
+  return formatPrice(n);
+}
+
 export function formatDate(
   value: Date | string | null | undefined,
   style: "short" | "long" | "datetime" = "short",

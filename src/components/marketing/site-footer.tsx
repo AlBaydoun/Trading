@@ -60,8 +60,9 @@ export function SiteFooter() {
             </Link>
 
             <p className="mt-4 text-sm leading-relaxed text-ink-muted">
-              {siteConfig.tagline}. Every position, fee and basis point visible
-              in one account.
+              {siteConfig.tagline}. Equities, crypto, currencies, commodities,
+              bonds and property — every position, fee and basis point visible in
+              one account.
             </p>
 
             <address className="mt-6 space-y-1 text-[13px] not-italic text-ink-faint">

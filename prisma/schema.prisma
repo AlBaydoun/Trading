@@ -125,6 +125,8 @@ enum AssetKind {
   INDEX
   COMMODITY
   FOREX
+  BOND
+  REIT
 }
 
 enum DepositMethod {

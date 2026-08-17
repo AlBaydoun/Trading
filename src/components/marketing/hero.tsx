@@ -55,7 +55,7 @@ export function Hero({
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: EASE }}
             >
-              <Eyebrow>Managed crypto &amp; equity portfolios</Eyebrow>
+              <Eyebrow>Managed multi-asset portfolios</Eyebrow>
             </motion.div>
 
             <SplitHeading
@@ -71,9 +71,10 @@ export function Hero({
               transition={{ duration: 0.7, delay: 0.5, ease: EASE }}
               className="mt-6 max-w-xl text-[17px] leading-relaxed text-ink-muted md:text-lg"
             >
-              Axiom builds and runs portfolios across cryptocurrency and global
-              equity markets. You get a single account, a live view of every
-              position and fee, and a ledger you can audit line by line.
+              Axiom builds and runs portfolios across every major market —
+              equities, crypto, currencies, commodities, bonds and property. One
+              account, a live view of every position and fee, and a ledger you
+              can audit line by line.
             </motion.p>
 
             <motion.div
@@ -87,7 +88,7 @@ export function Hero({
                 <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
               </ButtonLink>
               <ButtonLink href="/plans" variant="outline" size="lg">
-                Compare the five mandates
+                Compare the eight mandates
               </ButtonLink>
             </motion.div>
 

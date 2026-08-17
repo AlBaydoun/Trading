@@ -461,7 +461,7 @@ export default async function DashboardPage({
                   You are verified and ready to invest
                 </p>
                 <p className="mt-1 text-[13.5px] text-ink-muted">
-                  Five mandates are available, from dollar income to concentrated
+                  Eight mandates are available, from dollar income to concentrated
                   growth.
                 </p>
               </div>

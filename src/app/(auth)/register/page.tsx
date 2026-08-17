@@ -10,9 +10,10 @@ export const metadata: Metadata = buildMetadata({
     "Open an Axiom Capital account in a few minutes. Free to open, no obligation to fund, and identity verification is required before any money moves.",
   path: "/register",
   keywords: [
-    "open crypto investment account",
+    "open an investment account",
     "investment account sign up",
-    "start investing crypto and stocks",
+    "start investing in stocks crypto and commodities",
+    "multi-asset investment account",
   ],
 });
 

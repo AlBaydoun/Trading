@@ -261,7 +261,7 @@ export default async function ArticlePage({ params }: PageProps) {
               Put the ideas to work
             </h2>
             <p className="mt-3 text-[15.5px] leading-relaxed text-ink-muted">
-              Five mandates, each with its allocation, fees and expected drawdown
+              Eight mandates across every asset class, each with its allocation, fees and expected drawdown
               published before you commit a dollar.
             </p>
           </div>

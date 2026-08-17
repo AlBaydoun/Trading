@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
-import { AssetKind } from "@prisma/client";
-import { getMarketSnapshot, getMarketStats } from "@/lib/market/service";
-import { formatPrice, formatCompactMoney } from "@/lib/money";
+import type { AssetKind } from "@prisma/client";
+import { getMarketBoard, getMarketStats } from "@/lib/market/service";
+import { formatQuote, formatCompactMoney } from "@/lib/money";
 import { buildMetadata, JsonLd, breadcrumbSchema } from "@/lib/seo";
+import { ASSET_CLASSES } from "@/lib/market/types";
+import type { Quote } from "@/lib/market/types";
 import { Section, SectionHeading } from "@/components/marketing/section";
 import {
   Badge,
@@ -16,34 +18,34 @@ import {
 } from "@/components/ui/primitives";
 import { Sparkline } from "@/components/ui/sparkline";
 import { Reveal } from "@/components/motion/reveal";
-import type { Quote } from "@/lib/market/types";
 
 export const metadata: Metadata = buildMetadata({
-  title: "Live Crypto & Stock Market Prices",
+  title: "Live Markets — Crypto, Stocks, Forex, Commodities & Bonds",
   description:
-    "Live prices, 24-hour and 7-day moves, market capitalisation and volume across major cryptocurrencies, US equities and ETFs — the same board the Axiom portfolio desk works from.",
+    "Live prices across every major market: cryptocurrencies, global equities, currency pairs, metals and energy, benchmark indices, government bond yields and listed property.",
   path: "/markets",
   keywords: [
-    "live crypto prices",
-    "bitcoin price",
-    "stock market prices",
-    "crypto market cap",
-    "market movers today",
+    "live market prices",
+    "crypto prices",
+    "stock prices",
+    "forex rates",
+    "gold and oil prices",
+    "bond yields",
+    "commodity prices today",
   ],
 });
 
-// Prices go stale fast; a five-minute window keeps the page cheap to serve
-// while never showing anything materially out of date.
 export const revalidate = 300;
 
-export default async function MarketsPage() {
-  const [crypto, equities, stats] = await Promise.all([
-    getMarketSnapshot({ kind: AssetKind.CRYPTO, limit: 30 }),
-    getMarketSnapshot({ limit: 20 }),
-    getMarketStats(),
-  ]);
+/** Which columns make sense differs by class — a bond yield has no market cap. */
+function showsMarketCap(kind: AssetKind): boolean {
+  return kind === "CRYPTO" || kind === "EQUITY" || kind === "REIT";
+}
 
-  const equityQuotes = equities.quotes.filter((q) => q.kind !== AssetKind.CRYPTO);
+export default async function MarketsPage() {
+  const [board, stats] = await Promise.all([getMarketBoard(), getMarketStats()]);
+
+  const hasEquityFeed = Boolean(process.env.FINNHUB_API_KEY);
 
   return (
     <>
@@ -57,102 +59,124 @@ export default async function MarketsPage() {
       <Section className="pt-36 md:pt-44">
         <SectionHeading
           eyebrow="Market board"
-          title="What the desk is looking at."
-          description="Prices update continuously from our market data providers. They are indicative and for information only — they are not dealing quotes, and Axiom does not offer direct trading."
+          title="Every market the desk watches."
+          description="Cryptocurrencies, equities, currencies, commodities, indices, government bonds and listed property — one board. Prices are indicative and for information only; they are not dealing quotes."
         />
 
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat
+            label="Instruments tracked"
+            value={board.total}
+            sub={`${board.groups.length} asset classes`}
+            tone="brand"
+          />
           <Stat
             label="Crypto market cap"
             value={formatCompactMoney(stats.totalMarketCap)}
             sub="All tracked digital assets"
           />
           <Stat
-            label="24h volume"
+            label="24h crypto volume"
             value={formatCompactMoney(stats.totalVolume24h)}
             sub="Across all venues"
           />
           <Stat
             label="BTC dominance"
             value={`${stats.btcDominancePct.toFixed(1)}%`}
-            sub="Share of total market cap"
-            tone="brand"
-          />
-          <Stat
-            label="Assets tracked"
-            value={crypto.quotes.length + equityQuotes.length}
-            sub="Crypto, equities and ETFs"
+            sub="Share of digital asset value"
           />
         </div>
 
-        {/* --------------------------------------------------- movers --- */}
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <MoversPanel title="Top gainers · 24h" quotes={stats.gainers} positive />
           <MoversPanel title="Top decliners · 24h" quotes={stats.losers} />
         </div>
+
+        {/* Jump links — the board is long and this is the fastest way down it. */}
+        <Reveal className="mt-10 flex flex-wrap gap-2">
+          {board.groups.map((group) => (
+            <a
+              key={group.kind}
+              href={`#${group.kind.toLowerCase()}`}
+              className="rounded-full border border-line-bright px-3.5 py-1.5 text-[13px] text-ink-muted transition-colors hover:border-brand/50 hover:text-brand-bright"
+            >
+              {ASSET_CLASSES[group.kind].short}
+              <span className="ml-1.5 font-mono text-[11px] text-ink-faint">
+                {group.quotes.length}
+              </span>
+            </a>
+          ))}
+        </Reveal>
       </Section>
 
-      <Section className="border-y border-line bg-abyss pt-0 md:pt-0">
-        <Reveal>
-          <Panel>
-            <PanelHeader
-              title="Cryptocurrencies"
-              description="Ranked by market capitalisation."
-              action={
-                <Badge tone={crypto.source === "live" ? "mint" : "outline"} dot>
-                  {crypto.source === "live" ? "Live" : "Cached"}
-                </Badge>
-              }
-            />
-            <QuoteTable quotes={crypto.quotes} showRank />
-          </Panel>
-        </Reveal>
+      {/* --------------------------------------------------- class sections --- */}
+      <Section className="border-t border-line bg-abyss pt-0 md:pt-0">
+        <div className="space-y-8">
+          {board.groups.map((group) => {
+            const meta = ASSET_CLASSES[group.kind];
+            // Crypto and forex have genuine live feeds; the rest fall back to
+            // indicative pricing unless an equity provider key is configured.
+            const isLive =
+              group.kind === "CRYPTO" ||
+              group.kind === "FOREX" ||
+              hasEquityFeed;
 
-        <Reveal className="mt-8">
-          <Panel>
-            <PanelHeader
-              title="Equities and ETFs"
-              description="US large caps and index trackers referenced by the equity mandates."
-              action={
-                <Badge tone="outline">
-                  {process.env.FINNHUB_API_KEY ? "Delayed" : "Indicative"}
-                </Badge>
-              }
-            />
-            <QuoteTable quotes={equityQuotes} />
-            {!process.env.FINNHUB_API_KEY && (
-              <p className="border-t border-line px-5 py-3 text-[12px] text-ink-faint">
-                No equity data provider is configured, so these rows are derived
-                from baseline prices and move within a narrow simulated band. Add
-                a <code className="font-mono text-ink-muted">FINNHUB_API_KEY</code>{" "}
-                to serve real quotes.
-              </p>
-            )}
-          </Panel>
-        </Reveal>
+            return (
+              <Reveal key={group.kind}>
+                <Panel id={group.kind.toLowerCase()} className="scroll-mt-24">
+                  <PanelHeader
+                    title={meta.label}
+                    description={meta.blurb}
+                    action={
+                      <Badge tone={isLive ? "mint" : "outline"} dot={isLive}>
+                        {isLive ? "Live" : "Indicative"}
+                      </Badge>
+                    }
+                  />
+                  <QuoteTable quotes={group.quotes} kind={group.kind} />
+                  <p className="border-t border-line px-5 py-2.5 text-[11.5px] text-ink-faint">
+                    Price column: {meta.quote}.
+                  </p>
+                </Panel>
+              </Reveal>
+            );
+          })}
+        </div>
       </Section>
 
       <Section>
         <div className="panel px-6 py-8 md:px-10">
           <h2 className="font-display text-xl font-semibold text-ink">
-            About this data
+            Where these numbers come from
           </h2>
           <div className="mt-4 grid gap-6 text-[14px] leading-relaxed text-ink-muted md:grid-cols-3">
-            <p>
-              Cryptocurrency prices come from CoinGecko&apos;s aggregate feed and
-              refresh roughly every two minutes. They represent a volume-weighted
-              average across venues, not any single exchange&apos;s book.
-            </p>
-            <p>
-              Equity prices are end-of-interval quotes and may be delayed by up
-              to fifteen minutes depending on the exchange. They are not suitable
-              for timing a trade.
-            </p>
-            <p>
-              Nothing on this page is an offer, a recommendation or a dealing
-              quote. Axiom manages mandates; it does not operate an exchange or
-              accept individual trade instructions.
-            </p>
+            <div>
+              <p className="font-medium text-ink">Live feeds</p>
+              <p className="mt-1.5">
+                Cryptocurrency prices come from CoinGecko&apos;s aggregate feed —
+                a volume-weighted average across venues, not any single
+                exchange&apos;s book. Currency rates come from a daily reference
+                feed, and their percentage moves are measured against our own
+                stored history rather than taken on trust.
+              </p>
+            </div>
+            <div>
+              <p className="font-medium text-ink">Indicative rows</p>
+              <p className="mt-1.5">
+                {hasEquityFeed
+                  ? "Equities, indices, commodities and bonds are delayed by up to fifteen minutes depending on the exchange, and are not suitable for timing a trade."
+                  : "Without an equity data subscription, equities, indices, commodities, bonds and property move within a narrow band around a baseline. They are labelled Indicative and must never be read as tradeable."}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium text-ink">What this page is not</p>
+              <p className="mt-1.5">
+                Nothing here is an offer, a recommendation or a dealing quote.
+                Axiom runs managed mandates across these markets; it does not
+                operate an exchange and does not accept individual trade
+                instructions.
+              </p>
+            </div>
           </div>
         </div>
       </Section>
@@ -174,14 +198,9 @@ function MoversPanel({
       <PanelHeader title={title} />
       <ul className="divide-y divide-line/70">
         {quotes.map((quote) => (
-          <li
-            key={quote.symbol}
-            className="flex items-center justify-between gap-4 px-5 py-3"
-          >
+          <li key={quote.symbol} className="flex items-center justify-between gap-4 px-5 py-3">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-bright bg-surface-2 font-mono text-[10px] font-semibold text-ink-muted">
-                {quote.symbol.slice(0, 3)}
-              </span>
+              <Ticker symbol={quote.symbol} />
               <span className="min-w-0">
                 <span className="block truncate text-[14px] font-medium text-ink">
                   {quote.name}
@@ -193,7 +212,7 @@ function MoversPanel({
             </div>
             <div className="flex items-center gap-4">
               <span className="font-mono text-[13px] tabular-nums text-ink-muted">
-                {formatPrice(quote.price)}
+                {formatQuote(quote.price, quote.kind)}
               </span>
               <Delta value={quote.change24hPct} className="w-20 justify-end" />
               <Sparkline
@@ -211,13 +230,15 @@ function MoversPanel({
   );
 }
 
-function QuoteTable({
-  quotes,
-  showRank = false,
-}: {
-  quotes: Quote[];
-  showRank?: boolean;
-}) {
+function Ticker({ symbol }: { symbol: string }) {
+  return (
+    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-bright bg-surface-2 font-mono text-[10px] font-semibold text-ink-muted">
+      {symbol.slice(0, 3)}
+    </span>
+  );
+}
+
+function QuoteTable({ quotes, kind }: { quotes: Quote[]; kind: AssetKind }) {
   if (quotes.length === 0) {
     return (
       <p className="px-5 py-10 text-center text-sm text-ink-faint">
@@ -226,37 +247,37 @@ function QuoteTable({
     );
   }
 
+  const withCap = showsMarketCap(kind);
+
   return (
-    <Table className="min-w-[820px]">
+    <Table className="min-w-[760px]">
       <thead>
         <tr>
-          {showRank && <Th align="center">#</Th>}
-          <Th>Asset</Th>
+          <Th>Instrument</Th>
           <Th align="right">Price</Th>
           <Th align="right">24h</Th>
           <Th align="right">7d</Th>
-          <Th align="right" className="hidden lg:table-cell">Market cap</Th>
-          <Th align="right" className="hidden lg:table-cell">Volume 24h</Th>
+          {withCap && (
+            <Th align="right" className="hidden lg:table-cell">
+              Market cap
+            </Th>
+          )}
+          <Th align="right" className="hidden lg:table-cell">
+            Volume 24h
+          </Th>
           <Th align="right">7-day trend</Th>
         </tr>
       </thead>
       <tbody>
-        {quotes.map((quote, index) => (
+        {quotes.map((quote) => (
           <tr
             key={quote.symbol}
             id={quote.symbol}
             className="scroll-mt-24 transition-colors target:bg-brand/8 hover:bg-surface-2/60"
           >
-            {showRank && (
-              <Td align="center" mono className="text-ink-faint">
-                {quote.rank ?? index + 1}
-              </Td>
-            )}
             <Td>
               <div className="flex items-center gap-3">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-bright bg-surface-2 font-mono text-[10px] font-semibold text-ink-muted">
-                  {quote.symbol.slice(0, 3)}
-                </span>
+                <Ticker symbol={quote.symbol} />
                 <span className="min-w-0">
                   <span className="block truncate font-medium text-ink">
                     {quote.name}
@@ -267,12 +288,14 @@ function QuoteTable({
                 </span>
               </div>
             </Td>
-            <Td align="right" mono>{formatPrice(quote.price)}</Td>
+            <Td align="right" mono>{formatQuote(quote.price, quote.kind)}</Td>
             <Td align="right"><Delta value={quote.change24hPct} /></Td>
             <Td align="right"><Delta value={quote.change7dPct} showArrow={false} /></Td>
-            <Td align="right" mono className="hidden lg:table-cell text-ink-muted">
-              {quote.marketCap ? formatCompactMoney(quote.marketCap) : "—"}
-            </Td>
+            {withCap && (
+              <Td align="right" mono className="hidden lg:table-cell text-ink-muted">
+                {quote.marketCap ? formatCompactMoney(quote.marketCap) : "—"}
+              </Td>
+            )}
             <Td align="right" mono className="hidden lg:table-cell text-ink-muted">
               {quote.volume24h ? formatCompactMoney(quote.volume24h) : "—"}
             </Td>

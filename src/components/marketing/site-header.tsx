@@ -25,7 +25,7 @@ const NAV: NavItem[] = [
       {
         label: "Investment plans",
         href: "/plans",
-        description: "Five mandates, from dollar income to concentrated growth",
+        description: "Eight mandates across every asset class",
       },
       {
         label: "How it works",

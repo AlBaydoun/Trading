@@ -5,12 +5,13 @@ import { prisma, safeQuery } from "@/lib/prisma";
 import { toNumber } from "@/lib/money";
 import { seededRandom } from "@/lib/utils";
 import {
-  TRACKED_EQUITIES,
   fetchCryptoQuotes,
   fetchEquityQuotes,
+  fetchForexQuotes,
   fetchGlobalCryptoStats,
   type ProviderQuote,
 } from "@/lib/market/providers";
+import { ASSET_CLASS_ORDER } from "@/lib/market/types";
 import type { MarketSnapshot, Quote, QuoteSource } from "@/lib/market/types";
 
 /**
@@ -67,12 +68,22 @@ async function persistQuotes(quotes: ProviderQuote[]): Promise<number> {
   for (const quote of quotes) {
     if (!Number.isFinite(quote.price) || quote.price <= 0) continue;
 
+    let change24h = quote.change24hPct;
+    let change7d = quote.change7dPct;
+
+    // Some feeds return only a spot price. Rather than invent a movement,
+    // measure it against what we actually recorded a day and a week ago.
+    if (quote.deriveChange) {
+      change24h = await changeSince(quote.symbol, quote.price, 1);
+      change7d = await changeSince(quote.symbol, quote.price, 7);
+    }
+
     const data = {
       name: quote.name,
       kind: quote.kind,
       priceUsd: new Prisma.Decimal(quote.price.toFixed(8)),
-      change24hPct: new Prisma.Decimal(quote.change24hPct.toFixed(4)),
-      change7dPct: new Prisma.Decimal(quote.change7dPct.toFixed(4)),
+      change24hPct: new Prisma.Decimal(change24h.toFixed(4)),
+      change7dPct: new Prisma.Decimal(change7d.toFixed(4)),
       marketCapUsd:
         quote.marketCap != null ? new Prisma.Decimal(quote.marketCap.toFixed(2)) : null,
       volume24hUsd:
@@ -116,6 +127,13 @@ export function refreshMarketData(): Promise<{ updated: number; source: QuoteSou
       source = "live";
     }
 
+    // Free, key-less and genuinely live — forex needs no configuration.
+    const forex = await fetchForexQuotes();
+    if (forex) {
+      updated += await persistQuotes(forex);
+      source = "live";
+    }
+
     const equities = await fetchEquityQuotes();
     if (equities) {
       updated += await persistQuotes(equities);
@@ -145,9 +163,13 @@ export function refreshMarketData(): Promise<{ updated: number; source: QuoteSou
  * server and client cannot disagree.
  */
 async function driftSimulatedEquities(): Promise<number> {
-  const symbols = TRACKED_EQUITIES.map((e) => e.symbol);
+  // Crypto and forex have real feeds, so they are never drifted. Everything
+  // else without a provider key moves in a narrow, clearly-labelled band.
   const assets = await prisma.asset.findMany({
-    where: { symbol: { in: symbols } },
+    where: {
+      isActive: true,
+      kind: { in: [AssetKind.EQUITY, AssetKind.ETF, AssetKind.INDEX, AssetKind.COMMODITY, AssetKind.BOND, AssetKind.REIT] },
+    },
   });
 
   const hourBucket = Math.floor(Date.now() / 3_600_000);
@@ -175,10 +197,63 @@ async function driftSimulatedEquities(): Promise<number> {
   return updated;
 }
 
-/** Keeps a thin price history for the charts on the markets page. */
+/**
+ * Percentage change against the snapshot closest to `days` ago. Returns 0 when
+ * there is no history yet — a new install shows a flat line rather than a
+ * fabricated move.
+ */
+async function changeSince(
+  symbol: string,
+  currentPrice: number,
+  days: number,
+): Promise<number> {
+  const target = new Date(Date.now() - days * 86_400_000);
+
+  const past = await safeQuery(
+    () =>
+      prisma.priceSnapshot.findFirst({
+        where: { asset: { symbol }, capturedAt: { lte: target } },
+        orderBy: { capturedAt: "desc" },
+        select: { priceUsd: true },
+      }),
+    null,
+    `price history for ${symbol}`,
+  );
+
+  if (!past) return 0;
+  const previous = toNumber(past.priceUsd);
+  if (previous <= 0) return 0;
+
+  return ((currentPrice - previous) / previous) * 100;
+}
+
+/**
+ * Keeps a price history for every tracked instrument — it drives the markets
+ * charts and the derived change figures above.
+ *
+ * Capped at one capture per hour. Refreshes run every few minutes, and storing
+ * each one would put roughly 700k rows a month into the table for no extra
+ * resolution than an hourly series already gives.
+ */
+const SNAPSHOT_INTERVAL_MS = 55 * 60_000;
+
 async function captureSnapshots(): Promise<void> {
+  const newest = await safeQuery(
+    () =>
+      prisma.priceSnapshot.findFirst({
+        orderBy: { capturedAt: "desc" },
+        select: { capturedAt: true },
+      }),
+    null,
+    "snapshot cursor",
+  );
+
+  if (newest && Date.now() - newest.capturedAt.getTime() < SNAPSHOT_INTERVAL_MS) {
+    return;
+  }
+
   const assets = await prisma.asset.findMany({
-    where: { isFeatured: true },
+    where: { isActive: true },
     select: { id: true, priceUsd: true },
   });
 
@@ -303,6 +378,32 @@ export async function getMarketStats() {
     gainers: ranked.slice(0, 5),
     losers: ranked.slice(-5).reverse(),
   };
+}
+
+/**
+ * The whole board, grouped by asset class and ordered for display. One query
+ * rather than one per class, because the markets page renders all of them.
+ */
+export async function getMarketBoard(): Promise<{
+  groups: { kind: AssetKind; quotes: Quote[] }[];
+  source: QuoteSource;
+  total: number;
+}> {
+  const snapshot = await getMarketSnapshot({ limit: 250 });
+
+  const byKind = new Map<AssetKind, Quote[]>();
+  for (const quote of snapshot.quotes) {
+    const bucket = byKind.get(quote.kind);
+    if (bucket) bucket.push(quote);
+    else byKind.set(quote.kind, [quote]);
+  }
+
+  const groups = ASSET_CLASS_ORDER.map((kind) => ({
+    kind,
+    quotes: byKind.get(kind) ?? [],
+  })).filter((group) => group.quotes.length > 0);
+
+  return { groups, source: snapshot.source, total: snapshot.quotes.length };
 }
 
 export async function getAssetBySymbol(symbol: string): Promise<Quote | null> {

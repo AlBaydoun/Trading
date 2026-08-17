@@ -132,8 +132,11 @@ export function organizationSchema(): Json {
     areaServed: "Worldwide",
     serviceType: [
       "Investment management",
+      "Multi-asset portfolio management",
       "Cryptocurrency portfolio management",
       "Equity portfolio management",
+      "Foreign exchange and commodities management",
+      "Fixed income and real asset management",
     ],
     contactPoint: [
       {
