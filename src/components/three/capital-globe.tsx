@@ -76,8 +76,9 @@ function supportsWebGL(): boolean {
 
 const NODE_VERT = /* glsl */ `
   uniform float uTime;
-  uniform float uSize;
+  uniform float uSize;       // node diameter in world units
   uniform float uPixelRatio;
+  uniform float uProjScale;  // CSS pixels per world unit at one unit of depth
 
   attribute float aScale;
   attribute float aPhase;
@@ -95,7 +96,16 @@ const NODE_VERT = /* glsl */ `
 
     vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
     gl_Position = projectionMatrix * mvPosition;
-    gl_PointSize = uSize * aScale * uPixelRatio * (260.0 / -mvPosition.z);
+
+    // The real perspective divide, not an eyeballed constant: uProjScale is
+    // viewportHeight / (2 * tan(fov / 2)), so a node of world diameter uSize
+    // lands on screen at exactly the size it would be if it were geometry.
+    // gl_PointSize is in framebuffer pixels, hence the pixel-ratio term.
+    float size = uSize * aScale * uProjScale * uPixelRatio / -mvPosition.z;
+
+    // Clamp so a node drifting close to the camera cannot smear across the
+    // canvas, and so the smallest ones never vanish entirely.
+    gl_PointSize = clamp(size, 1.0, 16.0 * uPixelRatio);
 
     vShimmer = pulse * 0.5 + 0.5;
   }
@@ -174,8 +184,8 @@ const ATMOSPHERE_FRAG = /* glsl */ `
   void main() {
     // Rendered on the back faces: the rim is where the surface turns away
     // from the camera, which is exactly where the fresnel term peaks.
-    float fresnel = pow(1.0 - abs(dot(vNormalView, vec3(0.0, 0.0, 1.0))), 3.2);
-    gl_FragColor = vec4(uColor, fresnel * 0.55);
+    float fresnel = pow(1.0 - abs(dot(vNormalView, vec3(0.0, 0.0, 1.0))), 2.6);
+    gl_FragColor = vec4(uColor, fresnel * 0.34);
   }
 `;
 
@@ -256,8 +266,12 @@ export function CapitalGlobe({ className, speed = 1 }: CapitalGlobeProps) {
       blending: THREE.AdditiveBlending,
       uniforms: {
         uTime: { value: 0 },
-        uSize: { value: 5.5 },
+        // World diameter of a unit-scale node. The globe is radius 1, so this
+        // is a node roughly 0.6% of the globe across — about 2.5 CSS pixels at
+        // the default camera distance, and the 6% "hub" nodes near 10.
+        uSize: { value: 0.0076 },
         uPixelRatio: { value: 1 },
+        uProjScale: { value: 1000 },
         uColorLow: { value: srgb(COLOR_DEEP) },
         uColorHigh: { value: srgb(COLOR_BRAND) },
         uColorAccent: { value: srgb(COLOR_MINT) },
@@ -384,8 +398,9 @@ export function CapitalGlobe({ className, speed = 1 }: CapitalGlobeProps) {
       blending: THREE.AdditiveBlending,
       uniforms: {
         uTime: { value: 0 },
-        uSize: { value: 3.2 },
+        uSize: { value: 0.0042 },
         uPixelRatio: { value: 1 },
+        uProjScale: { value: 1000 },
         uColorLow: { value: srgb("#1e3a8a") },
         uColorHigh: { value: srgb(COLOR_BRAND) },
         uColorAccent: { value: srgb(COLOR_VIOLET) },
@@ -413,8 +428,17 @@ export function CapitalGlobe({ className, speed = 1 }: CapitalGlobeProps) {
       camera.position.z = clientWidth < 640 ? 4.3 : clientWidth < 1024 ? 3.8 : 3.35;
       camera.updateProjectionMatrix();
 
-      nodeMaterial.uniforms.uPixelRatio.value = dpr;
-      dustMaterial.uniforms.uPixelRatio.value = dpr;
+      // How many CSS pixels one world unit covers at one unit of depth. The
+      // point shaders divide this by depth to size a node correctly, so it has
+      // to be recomputed whenever the viewport height or the field of view
+      // changes.
+      const projScale =
+        clientHeight / (2 * Math.tan((camera.fov * Math.PI) / 360));
+
+      for (const material of [nodeMaterial, dustMaterial]) {
+        material.uniforms.uPixelRatio.value = dpr;
+        material.uniforms.uProjScale.value = projScale;
+      }
     }
 
     resize();
