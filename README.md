@@ -233,8 +233,16 @@ board formats each accordingly rather than putting a dollar sign on everything.
 
 ## Deploying
 
-**[DEPLOY.md](./DEPLOY.md) walks through Supabase + Vercel click by click**, no
-terminal needed. The summary:
+Two paths, both written out click by click:
+
+- **[HOSTINGER.md](./HOSTINGER.md)** — your own VPS (Hostinger, DigitalOcean,
+  Hetzner, anywhere). One command installs Node, PostgreSQL, nginx, PM2 and a
+  renewing HTTPS certificate. KYC uploads and rate limiting work as-is, because
+  there is one long-lived server with a disk.
+- **[DEPLOY.md](./DEPLOY.md)** — Supabase + Vercel, no terminal at all, free to
+  start. Move uploads to S3/R2 before going live on it.
+
+The summary either way:
 
 1. Provision PostgreSQL and set `DATABASE_URL` and `DIRECT_URL`.
 2. Set `AUTH_SECRET` (`openssl rand -base64 48`) and `NEXT_PUBLIC_SITE_URL`.
@@ -268,6 +276,10 @@ Nothing here is tied to a specific host. It is a standard Next.js app talking to
 Postgres over a connection string, so migrating is: point `DATABASE_URL` and
 `DIRECT_URL` at the new database, `npm run db:deploy`, then `npm run build &&
 npm run start` behind nginx or a container. Budget an afternoon, not a rewrite.
+
+`deploy/setup-vps.sh` does all of that on a fresh Ubuntu box in one command, and
+`deploy/update.sh` redeploys afterwards — pull, migrate, rebuild, reload, with
+an automatic rollback if the build fails. See [HOSTINGER.md](./HOSTINGER.md).
 
 ## Continuous integration
 
