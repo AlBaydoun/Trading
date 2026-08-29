@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch makes an in-flight run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, lint, build and verify the ledger
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # The build prerenders plan and article pages via generateStaticParams,
+    # which query the database — so CI needs a real Postgres, not a mock.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: axiom
+          POSTGRES_PASSWORD: axiom
+          POSTGRES_DB: axiom_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://axiom:axiom@localhost:5432/axiom_ci?schema=public
+      DIRECT_URL: postgresql://axiom:axiom@localhost:5432/axiom_ci?schema=public
+      # CI-only value. Production secrets never live in this file.
+      AUTH_SECRET: ci-only-secret-not-used-anywhere-real-0000000000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      SEED_ADMIN_EMAIL: admin@axiomcapital.example
+      SEED_ADMIN_PASSWORD: CiOnlyPassword!2024
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed
+        run: npm run db:seed
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # The one that matters: proves deposits, withdrawals, allocations,
+      # accruals and closures all leave the double-entry ledger reconciled,
+      # and that double-approval, over-allocation and overdraw are refused.
+      - name: Verify money operations and ledger integrity
+        run: npm run verify:ops
